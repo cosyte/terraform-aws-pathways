@@ -5,9 +5,13 @@
 #   load balancers      -> engine                     their source ports and the probe port
 #   engine              -> database                   5432
 #
-# The engine may also reach what egress_rules lists: the AWS APIs and the destinations.
+# The engine may also reach what egress_rules lists: the AWS APIs and the destinations. A load
+# balancer's group exists only when there is a source of its kind.
 
 locals {
+  create_nlb = length(var.mllp_sources) > 0
+  create_alb = length(var.http_sources) > 0
+
   # One rule per source port, keyed by the source's name, plus the probe port for each load balancer.
   nlb_to_engine = local.create_nlb ? merge(
     { for k, s in var.mllp_sources : "mllp-${k}" => s.port },
@@ -44,7 +48,7 @@ resource "aws_security_group" "engine" {
   name        = "pathways-${var.name}-engine"
   description = "Pathways ${var.name}: the engine tasks"
   vpc_id      = var.vpc_id
-  tags        = local.tags
+  tags        = var.tags
 }
 
 resource "aws_vpc_security_group_ingress_rule" "engine_from_nlb" {
@@ -56,7 +60,7 @@ resource "aws_vpc_security_group_ingress_rule" "engine_from_nlb" {
   ip_protocol                  = "tcp"
   from_port                    = each.value
   to_port                      = each.value
-  tags                         = local.tags
+  tags                         = var.tags
 }
 
 resource "aws_vpc_security_group_ingress_rule" "engine_from_alb" {
@@ -68,7 +72,7 @@ resource "aws_vpc_security_group_ingress_rule" "engine_from_alb" {
   ip_protocol                  = "tcp"
   from_port                    = each.value
   to_port                      = each.value
-  tags                         = local.tags
+  tags                         = var.tags
 }
 
 resource "aws_vpc_security_group_egress_rule" "engine_to_database" {
@@ -78,7 +82,7 @@ resource "aws_vpc_security_group_egress_rule" "engine_to_database" {
   ip_protocol                  = "tcp"
   from_port                    = 5432
   to_port                      = 5432
-  tags                         = local.tags
+  tags                         = var.tags
 }
 
 resource "aws_vpc_security_group_egress_rule" "engine" {
@@ -93,7 +97,7 @@ resource "aws_vpc_security_group_egress_rule" "engine" {
   ip_protocol = "tcp"
   from_port   = each.value.port
   to_port     = each.value.port
-  tags        = local.tags
+  tags        = var.tags
 }
 
 # ---------------------------------------------------------------------------
@@ -104,7 +108,7 @@ resource "aws_security_group" "database" {
   name        = "pathways-${var.name}-database"
   description = "Pathways ${var.name}: the database, reachable from the engine only"
   vpc_id      = var.vpc_id
-  tags        = local.tags
+  tags        = var.tags
 }
 
 resource "aws_vpc_security_group_ingress_rule" "database_from_engine" {
@@ -114,7 +118,7 @@ resource "aws_vpc_security_group_ingress_rule" "database_from_engine" {
   ip_protocol                  = "tcp"
   from_port                    = 5432
   to_port                      = 5432
-  tags                         = local.tags
+  tags                         = var.tags
 }
 
 # ---------------------------------------------------------------------------
@@ -127,7 +131,7 @@ resource "aws_security_group" "nlb" {
   name        = "pathways-${var.name}-nlb"
   description = "Pathways ${var.name}: the network load balancer for the MLLP sources"
   vpc_id      = var.vpc_id
-  tags        = local.tags
+  tags        = var.tags
 }
 
 resource "aws_vpc_security_group_ingress_rule" "nlb" {
@@ -139,7 +143,7 @@ resource "aws_vpc_security_group_ingress_rule" "nlb" {
   ip_protocol       = "tcp"
   from_port         = each.value.port
   to_port           = each.value.port
-  tags              = local.tags
+  tags              = var.tags
 }
 
 resource "aws_vpc_security_group_egress_rule" "nlb_to_engine" {
@@ -151,7 +155,7 @@ resource "aws_vpc_security_group_egress_rule" "nlb_to_engine" {
   ip_protocol                  = "tcp"
   from_port                    = each.value
   to_port                      = each.value
-  tags                         = local.tags
+  tags                         = var.tags
 }
 
 resource "aws_security_group" "alb" {
@@ -160,7 +164,7 @@ resource "aws_security_group" "alb" {
   name        = "pathways-${var.name}-alb"
   description = "Pathways ${var.name}: the application load balancer for the HTTP sources"
   vpc_id      = var.vpc_id
-  tags        = local.tags
+  tags        = var.tags
 }
 
 resource "aws_vpc_security_group_ingress_rule" "alb" {
@@ -172,7 +176,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb" {
   ip_protocol       = "tcp"
   from_port         = each.value.port
   to_port           = each.value.port
-  tags              = local.tags
+  tags              = var.tags
 }
 
 resource "aws_vpc_security_group_egress_rule" "alb_to_engine" {
@@ -184,5 +188,5 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_engine" {
   ip_protocol                  = "tcp"
   from_port                    = each.value
   to_port                      = each.value
-  tags                         = local.tags
+  tags                         = var.tags
 }

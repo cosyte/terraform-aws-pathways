@@ -3,9 +3,11 @@
 # pull request reaches the same answer. Nothing here plans against or applies to a real account.
 #
 #   fmt         terraform fmt -check -recursive
-#   validate    terraform init -backend=false and validate, the module and each example
-#   tf-test     terraform test against a mocked aws provider, plan only (tests/run.sh)
-#   tf-policy   tflint with the AWS ruleset, and trivy config (tests/policy/run.sh)
+#   validate    the layout, then terraform init -backend=false and validate, the module, each
+#               submodule and each example (scripts/validate.sh)
+#   tf-test     terraform test per subject under tests/, mocked aws provider, plan only
+#               (scripts/test.sh)
+#   tf-policy   tflint with the AWS ruleset, and trivy config (scripts/policy.sh)
 #   actionlint  every workflow file
 #
 # There is no paths filter, so every job reports on every pull request and each can be a required
@@ -65,7 +67,7 @@ jobs:
           terraform_version: ${{ steps.pins.outputs.terraform }}
           terraform_wrapper: false
 
-      - name: terraform validate, the module and each example
+      - name: the layout, and terraform validate of the module, each submodule and each example
         run: scripts/validate.sh
 
   tf-test:
@@ -85,7 +87,7 @@ jobs:
           terraform_wrapper: false
 
       - name: terraform test, mocked providers, plan only
-        run: tests/run.sh
+        run: scripts/test.sh
 
   tf-policy:
     name: tf-policy
@@ -98,7 +100,7 @@ jobs:
         env:
           # tflint --init fetches the AWS ruleset from GitHub; the token raises the rate limit.
           GITHUB_TOKEN: ${{ github.token }}
-        run: tests/policy/run.sh
+        run: scripts/policy.sh
 
   actionlint:
     name: actionlint

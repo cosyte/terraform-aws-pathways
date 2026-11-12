@@ -11,6 +11,9 @@
 # more (the container's stop timeout) before SIGKILL.
 
 locals {
+  create_nlb = length(var.mllp_sources) > 0
+  create_alb = length(var.http_sources) > 0
+
   readiness_check = {
     protocol            = "HTTP"
     port                = tostring(var.probe_port)
@@ -32,12 +35,12 @@ resource "aws_lb" "nlb" {
 
   name                             = "${var.name}-nlb"
   load_balancer_type               = "network"
-  internal                         = var.load_balancer_internal
-  subnets                          = local.load_balancer_subnet_ids
-  security_groups                  = [aws_security_group.nlb[0].id]
+  internal                         = var.internal
+  subnets                          = var.subnet_ids
+  security_groups                  = [var.nlb_security_group_id]
   enable_cross_zone_load_balancing = true
   enable_deletion_protection       = var.deletion_protection
-  tags                             = local.tags
+  tags                             = var.tags
 }
 
 resource "aws_lb_target_group" "mllp" {
@@ -67,7 +70,7 @@ resource "aws_lb_target_group" "mllp" {
     unhealthy_threshold = local.readiness_check.unhealthy_threshold
   }
 
-  tags = merge(local.tags, { "pathways:source" = each.key })
+  tags = merge(var.tags, { "pathways:source" = each.key })
 }
 
 resource "aws_lb_listener" "mllp" {
@@ -82,7 +85,7 @@ resource "aws_lb_listener" "mllp" {
     target_group_arn = aws_lb_target_group.mllp[each.key].arn
   }
 
-  tags = merge(local.tags, { "pathways:source" = each.key })
+  tags = merge(var.tags, { "pathways:source" = each.key })
 }
 
 # ---------------------------------------------------------------------------
@@ -94,12 +97,12 @@ resource "aws_lb" "alb" {
 
   name                       = "${var.name}-alb"
   load_balancer_type         = "application"
-  internal                   = var.load_balancer_internal
-  subnets                    = local.load_balancer_subnet_ids
-  security_groups            = [aws_security_group.alb[0].id]
+  internal                   = var.internal
+  subnets                    = var.subnet_ids
+  security_groups            = [var.alb_security_group_id]
   drop_invalid_header_fields = true
   enable_deletion_protection = var.deletion_protection
-  tags                       = local.tags
+  tags                       = var.tags
 }
 
 resource "aws_lb_target_group" "http" {
@@ -126,7 +129,7 @@ resource "aws_lb_target_group" "http" {
     unhealthy_threshold = local.readiness_check.unhealthy_threshold
   }
 
-  tags = merge(local.tags, { "pathways:source" = each.key })
+  tags = merge(var.tags, { "pathways:source" = each.key })
 }
 
 resource "aws_lb_listener" "http" {
@@ -143,5 +146,5 @@ resource "aws_lb_listener" "http" {
     target_group_arn = aws_lb_target_group.http[each.key].arn
   }
 
-  tags = merge(local.tags, { "pathways:source" = each.key })
+  tags = merge(var.tags, { "pathways:source" = each.key })
 }

@@ -67,6 +67,42 @@ module "pathways" {
 [`examples/complete`](examples/complete) is the same as a whole root module. Every input is
 described in [`variables.tf`](variables.tf) and every output in [`outputs.tf`](outputs.tf).
 
+## Layout
+
+The root module is the composition: its `main.tf` calls one submodule per concern and wires them
+together. Each submodule follows the registry's standard layout and can be used on its own, as its
+README shows, with `source = "github.com/cosyte/terraform-aws-pathways//modules/<name>"`.
+
+```text
+.
+├── main.tf                  the composition: calls each submodule
+├── variables.tf             the root's inputs
+├── outputs.tf               the root's outputs
+├── versions.tf              Terraform and provider constraints
+├── modules/
+│   ├── kms/                 the customer managed key, rotated yearly
+│   ├── logs/                the engine's and the migrate task's log groups
+│   ├── security_groups/     who may reach the load balancers, the engine and the database
+│   ├── database/            PostgreSQL on RDS and the secret holding its URL
+│   ├── iam/                 the task execution role and the task role
+│   ├── load_balancers/      the network load balancer (MLLP) and application load balancer (HTTP)
+│   └── ecs/                 the cluster, the engine and migrate task definitions, the service
+├── examples/
+│   └── complete/            a whole root module that calls this one
+├── tests/
+│   ├── composition/         the root: the wiring between the submodules, its outputs and inputs
+│   └── <name>/              one per submodule (kms, logs, ...), each tested on its own
+└── scripts/
+    ├── check-no-emdash.sh   no em or en dash in any tracked file
+    ├── validate.sh          the layout, then terraform validate in every directory
+    ├── policy.sh            tflint and trivy
+    └── test.sh              terraform test per subject, mocked providers, plan only
+```
+
+Each submodule directory holds `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a
+`README.md`. The tests plan against mocked providers only: none needs an AWS account or creates
+anything.
+
 ## What your project needs
 
 The module runs the image you give it; your `pathways.yaml` has to match what the module wires up.
@@ -200,12 +236,13 @@ while the first snapshot exists: copy it to a new name, or delete it, first.
 
 ## Security scanning
 
-`tests/policy/run.sh` runs tflint with the AWS ruleset and `trivy config` at HIGH and CRITICAL. One
-finding is accepted, inline where it fires:
+`scripts/policy.sh` runs tflint with the AWS ruleset and `trivy config` at HIGH and CRITICAL. Two
+findings are accepted, inline where they fire:
 
 | Check | Where | Why |
 | --- | --- | --- |
-| `AVD-AWS-0104` (egress to any address) | `security_groups.tf`, `aws_vpc_security_group_egress_rule.engine` | The default `egress_rules` allow HTTPS anywhere, which a task needs to reach the image registry, Secrets Manager and CloudWatch Logs through a NAT gateway. With VPC endpoints for those, narrow `egress_rules`. |
+| `AVD-AWS-0104` (egress to any address) | `modules/security_groups/main.tf`, `aws_vpc_security_group_egress_rule.engine` | The default `egress_rules` allow HTTPS anywhere, which a task needs to reach the image registry, Secrets Manager and CloudWatch Logs through a NAT gateway. With VPC endpoints for those, narrow `egress_rules`. |
+| tflint `terraform_unused_required_providers` | `versions.tf`, `aws` and `random` | The root holds no resource of its own; its submodules inherit these providers from it. The root keeps the declarations because they are the constraints a caller reads, and because `terraform test` hands a mocked provider only to a root module that requires it. |
 
 ## Compliance
 

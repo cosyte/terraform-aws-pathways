@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Policy checks over the module and its examples: tflint with the AWS ruleset, then trivy's
-# misconfiguration scan. Neither needs AWS credentials: both read the .tf files only.
+# Policy checks over the module, its submodules and its examples: tflint with the AWS ruleset, then
+# trivy's misconfiguration scan. Neither needs AWS credentials: both read the .tf files only.
 #
-#   tests/policy/run.sh
+#   scripts/policy.sh
 #
 # VERSIONS. tflint and trivy are pinned in mise.toml and this script reads the pins from there, so
 # CI and a laptop cannot drift. If the binary on PATH is the pinned version it is used; otherwise the
@@ -19,11 +19,11 @@
 
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
 fail() {
-  echo "tests/policy: $*" >&2
+  echo "scripts/policy.sh: $*" >&2
   exit 1
 }
 

@@ -10,7 +10,11 @@
 # The service runs one engine. A second engine on the same database is refused by the engine lease,
 # so a deploy stops the old task before it starts the new one (minimum healthy 0, maximum 100).
 
+data "aws_region" "current" {}
+
 locals {
+  region = data.aws_region.current.region
+
   engine_command  = ["start", "-C", "/project", "--no-migrate"]
   migrate_command = ["migrate", "-C", "/project"]
 
@@ -20,7 +24,7 @@ locals {
   liveness_command = ["CMD", "/nodejs/bin/node", "/app/dist/bin/pathways.mjs", "probe", "-C", "/project"]
 
   container_environment = [for k in sort(keys(var.environment)) : { name = k, value = var.environment[k] }]
-  container_secrets     = [for k in sort(keys(local.task_secrets)) : { name = k, valueFrom = local.task_secrets[k] }]
+  container_secrets     = [for k in sort(keys(var.secrets)) : { name = k, valueFrom = var.secrets[k] }]
 
   repository_credentials = var.repository_credentials_secret_arn == null ? {} : {
     repositoryCredentials = { credentialsParameter = var.repository_credentials_secret_arn }
@@ -34,7 +38,7 @@ locals {
     environment = local.container_environment
     secrets     = local.container_secrets
     portMappings = [
-      for p in local.container_ports : { containerPort = p, hostPort = p, protocol = "tcp" }
+      for p in var.container_ports : { containerPort = p, hostPort = p, protocol = "tcp" }
     ]
     stopTimeout = var.drain_timeout_seconds
     healthCheck = {
@@ -47,7 +51,7 @@ locals {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        awslogs-group         = aws_cloudwatch_log_group.engine.name
+        awslogs-group         = var.engine_log_group_name
         awslogs-region        = local.region
         awslogs-stream-prefix = "engine"
       }
@@ -64,7 +68,7 @@ locals {
     logConfiguration = {
       logDriver = "awslogs"
       options = {
-        awslogs-group         = aws_cloudwatch_log_group.migrate.name
+        awslogs-group         = var.migrate_log_group_name
         awslogs-region        = local.region
         awslogs-stream-prefix = "migrate"
       }
@@ -80,7 +84,7 @@ resource "aws_ecs_cluster" "this" {
     value = var.container_insights ? "enabled" : "disabled"
   }
 
-  tags = local.tags
+  tags = var.tags
 }
 
 resource "aws_ecs_task_definition" "engine" {
@@ -89,8 +93,8 @@ resource "aws_ecs_task_definition" "engine" {
   network_mode             = "awsvpc"
   cpu                      = tostring(var.cpu)
   memory                   = tostring(var.memory)
-  execution_role_arn       = aws_iam_role.execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  execution_role_arn       = var.execution_role_arn
+  task_role_arn            = var.task_role_arn
   container_definitions    = jsonencode([local.engine_container])
 
   runtime_platform {
@@ -98,7 +102,7 @@ resource "aws_ecs_task_definition" "engine" {
     cpu_architecture        = var.cpu_architecture
   }
 
-  tags = local.tags
+  tags = var.tags
 }
 
 resource "aws_ecs_task_definition" "migrate" {
@@ -107,8 +111,8 @@ resource "aws_ecs_task_definition" "migrate" {
   network_mode             = "awsvpc"
   cpu                      = tostring(var.cpu)
   memory                   = tostring(var.memory)
-  execution_role_arn       = aws_iam_role.execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  execution_role_arn       = var.execution_role_arn
+  task_role_arn            = var.task_role_arn
   container_definitions    = jsonencode([local.migrate_container])
 
   runtime_platform {
@@ -116,7 +120,7 @@ resource "aws_ecs_task_definition" "migrate" {
     cpu_architecture        = var.cpu_architecture
   }
 
-  tags = local.tags
+  tags = var.tags
 }
 
 resource "aws_ecs_service" "engine" {
@@ -136,38 +140,29 @@ resource "aws_ecs_service" "engine" {
     rollback = true
   }
 
-  health_check_grace_period_seconds = local.create_nlb || local.create_alb ? var.health_check_grace_period_seconds : null
+  # ECS refuses a grace period on a service with no load balancer.
+  health_check_grace_period_seconds = length(var.load_balancers) > 0 ? var.health_check_grace_period_seconds : null
 
   enable_execute_command  = false
   enable_ecs_managed_tags = true
   propagate_tags          = "SERVICE"
 
   network_configuration {
-    subnets          = var.private_subnet_ids
-    security_groups  = [aws_security_group.engine.id]
+    subnets          = var.subnet_ids
+    security_groups  = var.security_group_ids
     assign_public_ip = false
   }
 
+  # Each target group must already be attached to its load balancer by a listener: pass target
+  # group ARNs that are read after the listeners exist, as the load_balancers module's outputs are.
   dynamic "load_balancer" {
-    for_each = var.mllp_sources
+    for_each = var.load_balancers
     content {
-      target_group_arn = aws_lb_target_group.mllp[load_balancer.key].arn
+      target_group_arn = load_balancer.value.target_group_arn
       container_name   = "engine"
-      container_port   = load_balancer.value.port
+      container_port   = load_balancer.value.container_port
     }
   }
 
-  dynamic "load_balancer" {
-    for_each = var.http_sources
-    content {
-      target_group_arn = aws_lb_target_group.http[load_balancer.key].arn
-      container_name   = "engine"
-      container_port   = load_balancer.value.port
-    }
-  }
-
-  tags = local.tags
-
-  # The listeners attach each target group to its load balancer, which ECS needs first.
-  depends_on = [aws_lb_listener.mllp, aws_lb_listener.http]
+  tags = var.tags
 }
