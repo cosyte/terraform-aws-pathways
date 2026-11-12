@@ -112,7 +112,10 @@ We give the drivers, not prices: AWS sets those per region and changes them. Che
 
 ## Not here yet
 
-- **Alarms** on the engine's own metrics.
+- **Alarms** on the engine's own metrics. The engine serves them at `/metrics` on its health
+  endpoint ([Collect metrics](https://docs.cosyte.com/pathways/collect-metrics)); the module runs no
+  collector and creates no alarm on them yet, so scrape them with a collector of your own until it
+  does.
 - **A standby engine**: ECS replaces a task its load balancer reports unhealthy, and a standby is not
   ready by design, so it needs its own design and tests.
 - **SFTP from the internet**, which needs Elastic IPs.

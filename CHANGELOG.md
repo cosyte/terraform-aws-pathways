@@ -61,3 +61,6 @@
 - A release workflow: a tag `vMAJOR.MINOR.PATCH` on main, with a `CHANGELOG.md` section of its
   version, creates the GitHub release with `docs-content.tar.gz` and `source.tar.gz` attached and
   tells docs.cosyte.com.
+- The README and the deployment shapes page no longer say alarms wait on the engine publishing its
+  metric names: the engine serves them at `/metrics` on its health endpoint, and the module runs no
+  collector and creates no alarm on them yet. Nothing a caller passes changes.

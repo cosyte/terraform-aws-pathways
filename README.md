@@ -62,8 +62,12 @@ plan it, and tell us what you find.
 
 ### Not here yet
 
-- **Alarms.** CloudWatch alarms on the engine's own metrics, through a collector sidecar, come once
-  the engine publishes its metric names.
+- **Alarms.** The engine serves its metrics at `/metrics` on its health endpoint, in the
+  OpenMetrics text format, under names it keeps stable
+  ([Collect metrics](https://docs.cosyte.com/pathways/collect-metrics)).
+  The module does not read them yet: it runs no collector and creates no alarm on them. Reading them
+  on Fargate takes a collector beside the engine, and which one, at what monthly cost, is still being
+  decided. Until then, scrape `/metrics` with a collector of your own and alarm on what it forwards.
 - **A standby.** Pathways can run a second engine as a standby that takes over the lease. On ECS that
   needs care: ECS replaces a task its load balancer reports unhealthy, and a standby is not ready by
   design. It comes with its own tests.
