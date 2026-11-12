@@ -1,31 +1,45 @@
 # cosyte/terraform-aws-pathways
 
 A Terraform module that provisions Cosyte Pathways on AWS ECS Fargate. It follows the public registry's
-layout for one module per repository: `versions.tf`, `variables.tf`, `main.tf`, `outputs.tf`, an
-`examples/` directory and a `tests/` directory. Tools pin in `mise.toml`.
+layout for a module with nested submodules:
+
+- the root holds only `main.tf` (the composition, which calls the submodules), `variables.tf`,
+  `outputs.tf` and `versions.tf`;
+- `modules/<name>/` holds one concern each (`kms`, `logs`, `security_groups`, `database`, `iam`,
+  `load_balancers`, `ecs`), with its own `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a
+  short `README.md`, and each can be used on its own;
+- `examples/` holds whole root modules that call it;
+- `tests/<subject>/` holds the `terraform test` files: `tests/composition` for the root, and
+  `tests/<name>` for each submodule;
+- `scripts/` holds every command of the gate.
+
+A new concern is a new submodule with its own `tests/<name>` directory, called from the root's
+`main.tf`; `scripts/validate.sh` and `scripts/test.sh` refuse a layout that breaks these rules. Tools
+pin in `mise.toml`.
 
 ## Gate
 
 From the repo root, in this order, on the versions `mise.toml` pins. Each command names the tool it
 needs, so mise installs only that one: mise's own install of tflint fails its attestation check, and
-`tests/policy/run.sh` downloads tflint at its pin instead, checked against the release's checksums.
+`scripts/policy.sh` downloads tflint at its pin instead, checked against the release's checksums.
 
 ```sh
 mise exec terraform -- terraform fmt -check -recursive
 scripts/check-no-emdash.sh
 mise exec terraform -- scripts/validate.sh
-mise exec trivy -- tests/policy/run.sh
+mise exec trivy -- scripts/policy.sh
 mise exec actionlint -- actionlint
-mise exec terraform -- tests/run.sh
+mise exec terraform -- scripts/test.sh
 ```
 
-- `scripts/validate.sh`: `terraform init -backend=false` and `terraform validate`, in the root and in
-  each `examples/` directory.
-- `tests/policy/run.sh`: tflint with the AWS ruleset (`.tflint.hcl`), then `trivy config` at HIGH and
+- `scripts/validate.sh`: checks the layout above, then `terraform init -backend=false` and
+  `terraform validate` in the root, in each `modules/` directory and in each `examples/` directory.
+- `scripts/policy.sh`: tflint with the AWS ruleset (`.tflint.hcl`), then `trivy config` at HIGH and
   CRITICAL. An accepted trivy finding is an inline `#trivy:ignore:<ID>` with its reason, listed in the
   README.
-- `tests/run.sh`: `terraform test` over `tests/*.tftest.hcl`, plan only, against a mocked aws provider,
-  with every AWS credential taken away. It refuses a run block that does not plan.
+- `scripts/test.sh`: `terraform test` over each `tests/<subject>/` directory, plan only, against a
+  mocked aws provider, with every AWS credential taken away. It refuses a run block that does not
+  plan, and a submodule without its test directory.
 
 CI runs the same checks on every pull request, each its own job in `.github/workflows/ci.yml`
 (`fmt`, `validate`, `tf-test`, `tf-policy`, `actionlint`), with `no-emdash` (the tracked files and

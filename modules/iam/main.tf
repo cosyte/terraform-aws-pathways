@@ -3,7 +3,14 @@
 # starts with no permissions, and the caller attaches what an extension needs (its name is an
 # output).
 
+data "aws_caller_identity" "current" {}
+
+data "aws_partition" "current" {}
+
 locals {
+  account_id = data.aws_caller_identity.current.account_id
+  partition  = data.aws_partition.current.partition
+
   # A Secrets Manager reference may carry :json-key:version-stage:version-id after the secret's own
   # ARN; IAM names the secret by its ARN alone, the first seven fields.
   caller_secret_arns = distinct([
@@ -14,12 +21,13 @@ locals {
     for v in values(var.secrets) : v if can(regex("^arn:aws[a-z-]*:ssm:", v))
   ])
   registry_secret_arns = var.repository_credentials_secret_arn == null ? [] : [var.repository_credentials_secret_arn]
+  secret_arns          = concat(local.caller_secret_arns, local.registry_secret_arns)
 
   # An image in ECR: <account>.dkr.ecr.<region>.amazonaws.com[.cn]/<repository>[:tag]@sha256:<digest>.
   # The migrate image is usually the same repository at a newer digest, but need not be.
   ecr_pattern = "^([0-9]{12})\\.dkr\\.ecr\\.([a-z0-9-]+)\\.amazonaws\\.com(?:\\.cn)?/([^@:]+)"
   ecr_matches = [
-    for image in compact([var.image, var.migrate_image]) : regex(local.ecr_pattern, image)
+    for image in compact(var.images) : regex(local.ecr_pattern, image)
     if can(regex(local.ecr_pattern, image))
   ]
   ecr_repository_arns = distinct([
@@ -50,7 +58,7 @@ resource "aws_iam_role" "execution" {
   name               = "pathways-${var.name}-execution"
   description        = "Pathways ${var.name}: ECS starts the engine and migrate tasks with it"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
-  tags               = local.tags
+  tags               = var.tags
 }
 
 data "aws_iam_policy_document" "execution" {
@@ -81,20 +89,20 @@ data "aws_iam_policy_document" "execution" {
   }
 
   statement {
-    sid     = "WriteLogs"
-    effect  = "Allow"
-    actions = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = [
-      "${aws_cloudwatch_log_group.engine.arn}:*",
-      "${aws_cloudwatch_log_group.migrate.arn}:*",
-    ]
+    sid       = "WriteLogs"
+    effect    = "Allow"
+    actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = [for arn in var.log_group_arns : "${arn}:*"]
   }
 
-  statement {
-    sid       = "ReadSecrets"
-    effect    = "Allow"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = concat([aws_secretsmanager_secret.database_url.arn], local.caller_secret_arns, local.registry_secret_arns)
+  dynamic "statement" {
+    for_each = length(local.secret_arns) > 0 ? [local.secret_arns] : []
+    content {
+      sid       = "ReadSecrets"
+      effect    = "Allow"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = statement.value
+    }
   }
 
   dynamic "statement" {
@@ -107,11 +115,14 @@ data "aws_iam_policy_document" "execution" {
     }
   }
 
-  statement {
-    sid       = "DecryptSecrets"
-    effect    = "Allow"
-    actions   = ["kms:Decrypt"]
-    resources = concat([aws_kms_key.this.arn], var.secrets_kms_key_arns)
+  dynamic "statement" {
+    for_each = length(var.kms_key_arns) > 0 ? [var.kms_key_arns] : []
+    content {
+      sid       = "DecryptSecrets"
+      effect    = "Allow"
+      actions   = ["kms:Decrypt"]
+      resources = statement.value
+    }
   }
 }
 
@@ -125,5 +136,5 @@ resource "aws_iam_role" "task" {
   name               = "pathways-${var.name}-task"
   description        = "Pathways ${var.name}: the engine and migrate tasks run as it; no permissions until the caller attaches some"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
-  tags               = local.tags
+  tags               = var.tags
 }
