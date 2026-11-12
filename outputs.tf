@@ -60,13 +60,23 @@ output "kms_key_arn" {
 }
 
 output "database_address" {
-  description = "Hostname of the PostgreSQL instance. Connections must use TLS, verified against the RDS certificate authority."
-  value       = module.database.address
+  description = "Hostname of the PostgreSQL instance. Connections must use TLS, verified against the RDS certificate authority. Null with an existing database (database_url_secret_arn)."
+  value       = local.create_database ? module.database[0].address : null
+}
+
+output "database_instance_arn" {
+  description = "ARN of the RDS instance, for a replication of its automated backups to another region. Null with an existing database (database_url_secret_arn)."
+  value       = local.create_database ? module.database[0].instance_arn : null
+}
+
+output "database_storage_kms_key_arn" {
+  description = "ARN of the KMS key that encrypts the database's storage, its automated backups and its final snapshot: database_kms_key_arn, or the module's key. Null with an existing database (database_url_secret_arn)."
+  value       = local.create_database ? module.database[0].storage_kms_key_arn : null
 }
 
 output "database_url_secret_arn" {
-  description = "ARN of the Secrets Manager secret holding the database's connection URL, which ECS injects as PATHWAYS_DATABASE_URL."
-  value       = module.database.url_secret_arn
+  description = "ARN of the Secrets Manager secret holding the database's connection URL, which ECS injects as PATHWAYS_DATABASE_URL: the module's own, or database_url_secret_arn."
+  value       = local.database_url_secret_arn
 }
 
 output "engine_log_group_name" {

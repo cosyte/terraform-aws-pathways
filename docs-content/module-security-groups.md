@@ -101,6 +101,14 @@ Default:
 }
 ```
 
+### database_security_group_id
+
+The security group of an existing database the engine uses. Null creates the database's own group. Given, the module creates none, lets the engine reach that group on 5432, and adds a rule to it that admits the engine on 5432.
+
+Type: `string`
+
+Default: `null`
+
 ### tags
 
 Tags added to every group and rule. The caller's provider default_tags apply as well.
@@ -117,7 +125,7 @@ ID of the engine's security group. The database admits it.
 
 ### database_security_group_id
 
-ID of the database's security group, which admits the engine's only.
+ID of the database's security group, which admits the engine's: this module's own, or database_security_group_id when that is given.
 
 ### nlb_security_group_id
 

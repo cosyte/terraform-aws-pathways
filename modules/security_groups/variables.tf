@@ -79,6 +79,17 @@ variable "egress_rules" {
   }
 }
 
+variable "database_security_group_id" {
+  description = "The security group of an existing database the engine uses. Null creates the database's own group. Given, the module creates none, lets the engine reach that group on 5432, and adds a rule to it that admits the engine on 5432."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.database_security_group_id == null || can(regex("^sg-[0-9a-f]{8,17}$", var.database_security_group_id))
+    error_message = "database_security_group_id must be a security group id, such as sg-0a1b2c3d4e5f60718, or null."
+  }
+}
+
 variable "tags" {
   description = "Tags added to every group and rule. The caller's provider default_tags apply as well."
   type        = map(string)

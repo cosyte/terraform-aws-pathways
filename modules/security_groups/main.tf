@@ -5,10 +5,16 @@
 #   load balancers      -> engine                     their source ports and the probe port
 #   engine              -> database                   5432
 #
+# The database's group is this module's own, unless database_security_group_id names the group of an
+# existing database: then the module creates none, and adds the two rules above to that one.
+#
 # The engine may also reach what egress_rules lists: the AWS APIs and the destinations. A load
 # balancer's group exists only when there is a source of its kind.
 
 locals {
+  create_database_group = var.database_security_group_id == null
+  database_group_id     = local.create_database_group ? aws_security_group.database[0].id : var.database_security_group_id
+
   create_nlb = length(var.mllp_sources) > 0
   create_alb = length(var.http_sources) > 0
 
@@ -78,7 +84,7 @@ resource "aws_vpc_security_group_ingress_rule" "engine_from_alb" {
 resource "aws_vpc_security_group_egress_rule" "engine_to_database" {
   security_group_id            = aws_security_group.engine.id
   description                  = "To the database"
-  referenced_security_group_id = aws_security_group.database.id
+  referenced_security_group_id = local.database_group_id
   ip_protocol                  = "tcp"
   from_port                    = 5432
   to_port                      = 5432
@@ -105,14 +111,21 @@ resource "aws_vpc_security_group_egress_rule" "engine" {
 # ---------------------------------------------------------------------------
 
 resource "aws_security_group" "database" {
+  count = local.create_database_group ? 1 : 0
+
   name        = "pathways-${var.name}-database"
   description = "Pathways ${var.name}: the database, reachable from the engine only"
   vpc_id      = var.vpc_id
   tags        = var.tags
 }
 
+moved {
+  from = aws_security_group.database
+  to   = aws_security_group.database[0]
+}
+
 resource "aws_vpc_security_group_ingress_rule" "database_from_engine" {
-  security_group_id            = aws_security_group.database.id
+  security_group_id            = local.database_group_id
   description                  = "From the engine"
   referenced_security_group_id = aws_security_group.engine.id
   ip_protocol                  = "tcp"

@@ -4,8 +4,8 @@ output "engine_security_group_id" {
 }
 
 output "database_security_group_id" {
-  description = "ID of the database's security group, which admits the engine's only."
-  value       = aws_security_group.database.id
+  description = "ID of the database's security group, which admits the engine's: this module's own, or database_security_group_id when that is given."
+  value       = local.database_group_id
 }
 
 output "nlb_security_group_id" {
