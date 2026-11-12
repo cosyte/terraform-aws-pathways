@@ -19,7 +19,8 @@ plan it, and tell us what you find.
   accessible, reachable only from the engine, and refusing any connection without TLS
   (`rds.force_ssl`). The password is generated and written without ever entering the plan or the
   state, into a Secrets Manager secret that ECS injects as `PATHWAYS_DATABASE_URL`.
-- **A KMS key**, rotated every year, for the database, its secret and the logs.
+- **A KMS key**, rotated every year, for the database (unless you give `database_kms_key_arn`), its
+  secret and the logs.
 - **A network load balancer** for your MLLP sources, one TCP listener per source, passed straight
   through to the engine, which terminates its own TLS.
 - **An application load balancer** for your HTTP sources, HTTPS only (TLS 1.3 policy), dropping
@@ -30,7 +31,11 @@ plan it, and tell us what you find.
 - **Logs**: two CloudWatch log groups, encrypted under the module's key, with a retention. They get
   the engine's own JSON lines, which hold ids, counts and codes and never a message's content. The
   module captures nothing more: no load balancer access logs, no Performance Insights, no PostgreSQL
-  log export, no ECS Exec session logs.
+  log export, no ECS Exec session logs, and no Container Insights unless you turn it on with
+  `container_insights`. Container Insights writes performance metrics only (CPU, memory, network,
+  task counts), never message content, to a log group AWS creates
+  (`/aws/ecs/containerinsights/<cluster>/performance`) that is not encrypted under the module's key,
+  and CloudWatch bills for it.
 
 Both load balancers are internal by default, and each exists only when you name a source of its
 kind. The module has no provider block: your `aws` provider, its region and its `default_tags`
@@ -138,8 +143,46 @@ one engine start, which your senders must retry across.
 When ECS stops the engine it deregisters it from the load balancers, which wait
 `drain_timeout_seconds` for open connections and then close them. ECS then sends SIGTERM: the engine
 turns not ready, closes its sources and finishes what it is storing, and gets
-`drain_timeout_seconds` again before SIGKILL. Fargate allows at most 120 seconds there, so the input
-does too.
+`drain_timeout_seconds` again before SIGKILL. The input takes 2 to 120 seconds, the range both sides
+allow:
+
+- The container's `stopTimeout`: "The valid values for Fargate are 2-120 seconds", default 30
+  ([ContainerDefinition](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ContainerDefinition.html),
+  read 2026-11-11).
+- The target groups' `deregistration_delay.timeout_seconds`: 0 to 3600 seconds, default 300. On the
+  network load balancer the module also sets `deregistration_delay.connection_termination.enabled`,
+  which is off by default for TCP, so connections still open at the end of the delay are closed
+  rather than left to the engine's SIGKILL
+  ([TargetGroupAttribute](https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_TargetGroupAttribute.html),
+  read 2026-11-11).
+
+## The database password
+
+The password lives in two places: on the database, and inside the connection URL in the module's
+secret. Both are written in the same run, and only when `database_password_version` changes, since
+neither the plan nor the state holds the password to compare. Two things can leave them apart:
+Terraform replacing the database (a change to `database_name` or `database_username`, with
+`deletion_protection` off), or a first apply that failed after it created the database and before it
+wrote the secret. The engine then fails to log in. To recover, raise `database_password_version` by
+one and apply: the module sets a new password on the database and writes the matching URL. Then
+restart the engine (a new deployment of the service) so it reads the new secret. The same step
+rotates the password on purpose.
+
+## Destroying it, and the final snapshot
+
+`deletion_protection` is on by default: turn it off and apply before you destroy. A destroy then
+takes a final snapshot of the database, named `pathways-<name>-final`, and schedules the module's KMS
+key for deletion with the rest. By default the database, its automated backups and that snapshot are
+encrypted under the module's key, so once the key's deletion window ends
+(`kms_key_deletion_window_days`, 30 days by default, the most AWS allows) the snapshot cannot be
+restored, unless you cancel the key's deletion first.
+
+To keep a final snapshot that outlives the module, give `database_kms_key_arn`, a KMS key of your own
+that the module does not manage; its key policy must let RDS use it for the role that applies. We
+kept the module's own key as the default so that the module works alone and everything it stores is
+under one key it scopes to this deployment; the longest window AWS allows is the default for the same
+reason. The snapshot's name is fixed, so a second destroy of a module with the same `name` fails
+while the first snapshot exists: copy it to a new name, or delete it, first.
 
 ## Not here yet
 
@@ -148,7 +191,12 @@ does too.
 - **A standby.** Pathways can run a second engine as a standby that takes over the lease. On ECS that
   needs care: ECS replaces a task its load balancer reports unhealthy, and a standby is not ready by
   design. It comes with its own tests.
-- **A registry release.** No version is tagged or published yet.
+- **A registry release.** No version is tagged or published yet. The
+  [Terraform Registry](https://developer.hashicorp.com/terraform/registry/modules/publish) (read
+  2026-11-11) publishes only a public GitHub repository named `terraform-<provider>-<name>`, which
+  this name fits, and takes release tags that are a semantic version, optionally prefixed with `v`.
+  The OpenTofu registry takes a module through its GitHub issue form; its naming and tag rules we
+  have not confirmed yet.
 
 ## Security scanning
 

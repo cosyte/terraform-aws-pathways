@@ -300,6 +300,12 @@ variable "secrets_kms_key_arns" {
   default     = []
 }
 
+variable "container_insights" {
+  description = "Whether the ECS cluster runs Container Insights. It writes performance metrics only (CPU, memory, network, task counts), never message content, to a log group AWS creates, /aws/ecs/containerinsights/<cluster>/performance, which is not encrypted under the module's key and is billed by CloudWatch. Off by default."
+  type        = bool
+  default     = false
+}
+
 variable "log_retention_days" {
   description = "How many days CloudWatch Logs keeps the engine's and the migrate task's logs. They hold ids, counts and codes, never message content."
   type        = number
@@ -312,7 +318,7 @@ variable "log_retention_days" {
 }
 
 variable "kms_key_deletion_window_days" {
-  description = "Days between scheduling the module's KMS key for deletion and its deletion. Everything it encrypts is unreadable after that."
+  description = "Days between scheduling the module's KMS key for deletion and its deletion, 7 to 30 (AWS allows no more). Everything it encrypts is unreadable after that, the database's final snapshot included unless database_kms_key_arn names a key of your own."
   type        = number
   default     = 30
 
@@ -396,13 +402,24 @@ variable "database_username" {
 }
 
 variable "database_password_version" {
-  description = "Raise this by one to set a new database password: the module generates one, sets it on the database and writes the new connection URL to its secret, and neither the plan nor the state ever holds it. Restart the engine afterwards so it reads the new secret."
+  description = "Raise this by one to set a new database password: the module generates one, sets it on the database and writes the new connection URL to its secret in the same run, and neither the plan nor the state ever holds it. Restart the engine afterwards so it reads the new secret. Raise it also when the password and the stored URL stop matching (the engine fails to log in): after the database was replaced, or after a first apply that created the database but failed before it wrote the secret."
   type        = number
   default     = 1
 
   validation {
     condition     = var.database_password_version >= 1 && floor(var.database_password_version) == var.database_password_version
     error_message = "database_password_version must be a whole number, 1 or more."
+  }
+}
+
+variable "database_kms_key_arn" {
+  description = "ARN of a KMS key of your own to encrypt the database's storage, its automated backups and its final snapshot. Null uses the module's key, which a destroy schedules for deletion with everything else: after kms_key_deletion_window_days the final snapshot cannot be restored. Give a key that outlives the module if the final snapshot must. Its key policy must let RDS use it for the role that applies."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.database_kms_key_arn == null || can(regex("^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$", var.database_kms_key_arn))
+    error_message = "database_kms_key_arn must be a KMS key ARN (arn:aws:kms:<region>:<account>:key/<id>), not an alias, or null."
   }
 }
 

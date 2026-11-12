@@ -572,3 +572,75 @@ run "image_outside_ecr_reads_no_ecr" {
     error_message = "An image outside ECR gives the execution role no ECR permission."
   }
 }
+
+# ---------------------------------------------------------------------------
+# The database password, its key, and what the cluster captures
+# ---------------------------------------------------------------------------
+
+run "container_insights_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = anytrue([for s in aws_ecs_cluster.this.setting : s.name == "containerInsights" && s.value == "disabled"])
+    error_message = "Container Insights is off unless asked for: its log group is not under the module's key."
+  }
+}
+
+run "container_insights_on_when_asked" {
+  command = plan
+
+  variables {
+    container_insights = true
+  }
+
+  assert {
+    condition     = anytrue([for s in aws_ecs_cluster.this.setting : s.name == "containerInsights" && s.value == "enabled"])
+    error_message = "container_insights = true turns Container Insights on."
+  }
+}
+
+run "raising_password_version_rotates_password_and_url" {
+  command = plan
+
+  variables {
+    database_password_version = 2
+  }
+
+  assert {
+    condition     = aws_db_instance.this.password_wo_version == 2
+    error_message = "Raising database_password_version sets a new password on the database."
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret_version.database_url.secret_string_wo_version == 2
+    error_message = "Raising database_password_version writes a new connection URL to the secret in the same run."
+  }
+}
+
+run "database_key_from_caller_outlives_the_module" {
+  command = plan
+
+  variables {
+    database_kms_key_arn = "arn:aws:kms:us-east-1:123456789012:key/11111111-1111-1111-1111-111111111111"
+  }
+
+  assert {
+    condition     = aws_db_instance.this.storage_encrypted && aws_db_instance.this.kms_key_id == "arn:aws:kms:us-east-1:123456789012:key/11111111-1111-1111-1111-111111111111"
+    error_message = "With database_kms_key_arn set, the database and its snapshots are encrypted under the caller's key."
+  }
+
+  assert {
+    condition     = aws_secretsmanager_secret.database_url.kms_key_id == aws_kms_key.this.arn
+    error_message = "The secret stays under the module's key."
+  }
+}
+
+run "database_key_that_is_not_a_kms_key_arn_is_refused" {
+  command = plan
+
+  variables {
+    database_kms_key_arn = "alias/pathways-test"
+  }
+
+  expect_failures = [var.database_kms_key_arn]
+}

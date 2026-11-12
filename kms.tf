@@ -1,5 +1,6 @@
-# One customer managed key for everything the module stores: the database's storage, the secret
-# that holds its connection URL, and both log groups. It rotates every year.
+# One customer managed key for everything the module stores: the database's storage (unless the
+# caller gives database_kms_key_arn), the secret that holds its connection URL, and both log groups.
+# It rotates every year.
 
 resource "aws_kms_key" "this" {
   description             = "Pathways ${var.name}: the database, its secret and the logs"
