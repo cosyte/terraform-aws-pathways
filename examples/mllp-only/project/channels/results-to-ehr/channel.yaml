@@ -1,0 +1,23 @@
+# The second channel: take results (ORU) over MLLP from the lab and send each on to the EHR's MLLP
+# receiver. The EHR's address is a placeholder.
+name: results-to-ehr
+format: hl7v2
+
+source:
+  mllp:
+    # mllp_sources.results in the example's main.tf: the network load balancer passes this port
+    # through.
+    port: 2577
+    host: 0.0.0.0
+    # The engine terminates TLS itself. Add the certificate and key to the image.
+    tls:
+      cert: ../../certs/server.pem
+      key: ../../certs/server.key
+
+destinations:
+  - mllp:
+      # egress_rules.ehr in the example's main.tf lets the engine reach this port.
+      host: ehr.example.com
+      port: 2578
+      tls:
+        ca: ../../certs/ehr-ca.pem

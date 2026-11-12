@@ -3,11 +3,14 @@
 # Runs the module's tests: terraform test over each subject directory under tests/, against a mocked
 # aws provider.
 #
-#   scripts/test.sh
+#   scripts/test.sh                          every subject
+#   scripts/test.sh tests/example-minimal    the subjects named, after the same checks
 #
-# tests/ holds one directory per subject: tests/composition for the root module, and tests/<name>
-# for each submodule under modules/<name>, whose run blocks name it with `module { source = ... }`.
-# Every submodule must have its directory, so a new one cannot go untested.
+# tests/ holds one directory per subject: tests/composition for the root module, tests/<name> for
+# each submodule under modules/<name>, and tests/example-<name> for each example under
+# examples/<name> that holds Terraform; the run blocks of the last two name their subject with
+# `module { source = ... }`. Every submodule and every such example must have its directory, so a
+# new one cannot go untested, and every tests/example-<name> must have its example.
 #
 # A test that reached a real account would be worse than none, so before terraform runs this
 # script checks that:
@@ -37,6 +40,18 @@ for m in modules/*/; do
   [ -d "tests/${m}" ] || fail "modules/${m} has no tests/${m} directory"
 done
 
+for e in examples/*/; do
+  e="$(basename "$e")"
+  if [ -f "examples/${e}/main.tf" ]; then
+    [ -d "tests/example-${e}" ] || fail "examples/${e} has no tests/example-${e} directory"
+  fi
+done
+for t in tests/example-*/; do
+  e="$(basename "$t")"
+  e="${e#example-}"
+  [ -f "examples/${e}/main.tf" ] || fail "tests/example-${e} has no example examples/${e} with Terraform to test"
+done
+
 dirs=()
 for d in tests/*/; do
   d="${d%/}"
@@ -58,6 +73,21 @@ for d in "${dirs[@]}"; do
   done
 done
 shopt -u nullglob
+
+# The subjects named on the command line, if any: each must be one found above.
+if [ "$#" -gt 0 ]; then
+  chosen=()
+  for want in "$@"; do
+    want="${want%/}"
+    found=""
+    for d in "${dirs[@]}"; do
+      [ "$d" = "$want" ] && found="$d"
+    done
+    [ -n "$found" ] || fail "${want} is not a subject under tests/ with a .tftest.hcl file"
+    chosen+=("$found")
+  done
+  dirs=("${chosen[@]}")
+fi
 
 unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN \
   AWS_PROFILE AWS_DEFAULT_PROFILE AWS_ROLE_ARN AWS_ROLE_SESSION_NAME \

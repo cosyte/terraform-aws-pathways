@@ -1,0 +1,24 @@
+# One channel: take ADT over MLLP from the hospital system and send each admission on to the lab's
+# MLLP receiver. The lab's address is a placeholder.
+name: adt-to-lab
+format: hl7v2
+
+source:
+  mllp:
+    # mllp_sources.adt in the example's main.tf: the network load balancer passes this port through.
+    port: 2575
+    host: 0.0.0.0
+    # The engine terminates TLS itself. Add the certificate and key to the image.
+    tls:
+      cert: ../../certs/server.pem
+      key: ../../certs/server.key
+
+transform: ./transform.ts
+
+destinations:
+  - mllp:
+      # egress_rules.lab in the example's main.tf lets the engine reach this port.
+      host: lab.example.com
+      port: 2576
+      tls:
+        ca: ../../certs/lab-ca.pem

@@ -37,6 +37,27 @@
   running. CI fails when an example has no page. The README links to the docs site.
 - `examples/minimal`: the smallest deployment, one engine, its database in one availability zone and
   one MLLP channel, which the quickstart deploys.
+- An existing database: `database_url_secret_arn`, a Secrets Manager secret of your own holding a
+  PostgreSQL URL, with `database_security_group_id`, that database's security group. Given both, the
+  module creates no RDS instance, no subnet group and no URL secret, injects your secret as
+  `PATHWAYS_DATABASE_URL`, lets the engine reach your group on 5432 and adds a rule to it admitting
+  the engine. Neither given keeps the module's own database. A caller who changes nothing changes
+  nothing: the database and its security group move to `module.database[0]` and
+  `aws_security_group.database[0]` through `moved` blocks, so a plan shows no replacement.
+  `modules/security_groups` takes `database_security_group_id` too.
+- Two outputs, `database_instance_arn` and `database_storage_kms_key_arn`, for a replication of the
+  database's automated backups to another region; both null with an existing database.
+- One example per deployment shape, each with a README (what it builds, when to choose it, what it
+  costs, what it does not cover), a docs page and a `tests/example-<name>` directory that plans it
+  whole against mocked providers: `production` (one engine, the database's Multi-AZ standby, a key of
+  your own), `bring-your-own-vpc` (a VPC and subnets found by their tags), `existing-database`,
+  `mllp-only`, `http-only`, `sftp-and-bucket`, `private-only` (VPC endpoints, no NAT gateway) and
+  `cross-region-backup` (replicated backups, with the restore written out). `minimal` and `complete`
+  get their tests too. `multiple-active-nodes`, `blue-green` and `second-region-disaster-recovery`
+  hold a README alone, saying they are not yet supported and what in the engine they wait on.
+  `scripts/validate.sh` refuses an example folder with no `main.tf` that holds anything but its
+  README; `scripts/test.sh` refuses an example with Terraform and no test directory, and runs only the
+  subjects named on its command line when given any. The README has an index of the examples.
 - A release workflow: a tag `vMAJOR.MINOR.PATCH` on main, with a `CHANGELOG.md` section of its
   version, creates the GitHub release with `docs-content.tar.gz` and `source.tar.gz` attached and
   tells docs.cosyte.com.

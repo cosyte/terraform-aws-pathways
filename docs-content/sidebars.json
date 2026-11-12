@@ -23,7 +23,21 @@
         {
           "type": "category",
           "label": "Examples",
-          "items": ["example-minimal", "example-complete"]
+          "items": [
+            "example-minimal",
+            "example-production",
+            "example-complete",
+            "example-bring-your-own-vpc",
+            "example-existing-database",
+            "example-mllp-only",
+            "example-http-only",
+            "example-sftp-and-bucket",
+            "example-private-only",
+            "example-cross-region-backup",
+            "example-multiple-active-nodes",
+            "example-blue-green",
+            "example-second-region-disaster-recovery"
+          ]
         },
         {
           "type": "category",

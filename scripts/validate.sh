@@ -9,7 +9,10 @@
 #
 # The layout is the registry's standard one for a module with nested submodules:
 #   * the root holds only main.tf (the composition), variables.tf, outputs.tf and versions.tf;
-#   * each modules/<name>/ holds main.tf, variables.tf, outputs.tf, versions.tf and a README.md.
+#   * each modules/<name>/ holds main.tf, variables.tf, outputs.tf, versions.tf and a README.md;
+#   * each examples/<name>/ holds a README.md, and either a whole root module (main.tf,
+#     variables.tf, outputs.tf and versions.tf), which is validated, or nothing else at all: a
+#     shape the engine cannot run safely yet is a README that says so, never Terraform.
 
 set -euo pipefail
 
@@ -46,13 +49,30 @@ done
 
 [ "${#examples[@]}" -gt 0 ] || fail "no example under examples/"
 
-echo "Layout: the root, ${#modules[@]} submodules and ${#examples[@]} examples."
+runnable=()
+for e in "${examples[@]}"; do
+  e="${e%/}"
+  [ -f "${e}/README.md" ] || fail "${e} has no README.md"
+  if [ -f "${e}/main.tf" ]; then
+    for f in variables.tf outputs.tf versions.tf; do
+      [ -f "${e}/${f}" ] || fail "${e} has main.tf but no ${f}"
+    done
+    runnable+=("${e}/")
+  else
+    others="$(find "$e" -mindepth 1 -not -name README.md -not -name .terraform -not -path '*/.terraform/*' -not -name .terraform.lock.hcl | sort | tr '\n' ' ')"
+    [ -z "$others" ] \
+      || fail "${e} has no main.tf, so it is a shape that is not supported yet, and holds its README.md alone; it also holds: ${others}"
+  fi
+done
+
+echo "Layout: the root, ${#modules[@]} submodules and ${#examples[@]} examples, ${#runnable[@]} of them with Terraform."
 
 # ---------------------------------------------------------------------------
 # init and validate
 # ---------------------------------------------------------------------------
 
-dirs=(. "${modules[@]}" "${examples[@]}")
+dirs=(. "${modules[@]}")
+[ "${#runnable[@]}" -eq 0 ] || dirs+=("${runnable[@]}")
 
 # Every directory needs the same providers: download them once, into a cache that lives as long as
 # this run. The lock files are removed at the end anyway, so the cache may write them with this

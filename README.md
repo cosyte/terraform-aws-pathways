@@ -25,7 +25,11 @@ running. The site builds those pages from each release, so until the first relea
 - **PostgreSQL on RDS**: Multi-AZ by default, storage encrypted under the module's key, not publicly
   accessible, reachable only from the engine, and refusing any connection without TLS
   (`rds.force_ssl`). The password is generated and written without ever entering the plan or the
-  state, into a Secrets Manager secret that ECS injects as `PATHWAYS_DATABASE_URL`.
+  state, into a Secrets Manager secret that ECS injects as `PATHWAYS_DATABASE_URL`. To use a
+  PostgreSQL database you already run instead, give `database_url_secret_arn`, a secret of your own
+  holding its URL, and `database_security_group_id`, its security group: the module then creates no
+  database, lets the engine reach that group on 5432 and adds a rule to it admitting the engine
+  ([`examples/existing-database`](examples/existing-database)).
 - **A KMS key**, rotated every year, for the database (unless you give `database_kms_key_arn`), its
   secret and the logs.
 - **A network load balancer** for your MLLP sources, one TCP listener per source, passed straight
@@ -86,11 +90,35 @@ module "pathways" {
 }
 ```
 
-[`examples/minimal`](examples/minimal) is the smallest deployment: the engine, its database and one
-MLLP channel. [`examples/complete`](examples/complete) stands the whole thing up as a root module: the engine and
-its database, the bucket, SFTP for one partner, and the one channel that joins them, with the
-project it deploys in `examples/complete/project`. Every input is
-described in [`variables.tf`](variables.tf) and every output in [`outputs.tf`](outputs.tf).
+Every input is described in [`variables.tf`](variables.tf) and every output in
+[`outputs.tf`](outputs.tf).
+
+## Examples
+
+One folder per deployment shape under [`examples/`](examples), each a whole root module with the
+Pathways project it deploys in `project/`, and a README that says what it builds, when to choose
+it, what it costs and what it does not cover. CI validates each one and plans it against mocked
+providers (`tests/example-<name>`); nothing here applies them.
+
+| Example | The shape |
+| --- | --- |
+| [`minimal`](examples/minimal) | The smallest deployment: one engine, its database in one zone, one MLLP channel. For trying the module out. |
+| [`production`](examples/production) | One engine sized and protected for real traffic, the database's Multi-AZ standby, your own key for the database. |
+| [`complete`](examples/complete) | The engine and its database, the bucket, SFTP for one partner, and the channel that joins them. |
+| [`bring-your-own-vpc`](examples/bring-your-own-vpc) | A VPC and subnets found by their tags, the engine, the database and the load balancer each in its own tier. |
+| [`existing-database`](examples/existing-database) | A PostgreSQL database you already run, instead of the module's RDS instance. |
+| [`mllp-only`](examples/mllp-only) | Two MLLP feeds behind one network load balancer; no HTTP, bucket or SFTP. |
+| [`http-only`](examples/http-only) | One HTTPS source behind the application load balancer; no network load balancer. |
+| [`sftp-and-bucket`](examples/sftp-and-bucket) | Files only: two partners over SFTP into the bucket; no load balancer. |
+| [`private-only`](examples/private-only) | No public ingress and no NAT gateway: VPC endpoints for the AWS APIs. |
+| [`cross-region-backup`](examples/cross-region-backup) | The database's automated backups replicated to a second region, and a restore there step by step. |
+
+Three shapes wait on the engine. Their folders hold a README that says plainly they are not yet
+supported and what they wait on, and no Terraform, so nobody deploys a shape the engine cannot run
+safely: [`multiple-active-nodes`](examples/multiple-active-nodes) (several active engines on one
+database), [`blue-green`](examples/blue-green) (a deploy with a handover between two engines) and
+[`second-region-disaster-recovery`](examples/second-region-disaster-recovery) (a second region with
+promotion).
 
 ## Layout
 
@@ -114,13 +142,15 @@ README shows, with `source = "github.com/cosyte/terraform-aws-pathways//modules/
 │   ├── ecs/                 the cluster, the engine and migrate task definitions, the service
 │   ├── bucket/              optional: the S3 bucket, its access log bucket, the task role's access
 │   └── sftp/                optional: the Transfer Family SFTP server, its users and its logs
-├── examples/
+├── examples/                one folder per deployment shape; see Examples above
 │   ├── minimal/             the smallest deployment: the engine, its database, one MLLP channel
-│   └── complete/            a whole root module that calls this one, and the project it deploys
+│   ├── complete/            the engine, its database, the bucket, SFTP and one channel
+│   └── <shape>/             production, existing-database, private-only and the rest
 ├── docs-content/            the docs.cosyte.com pages, released as docs-content.tar.gz
 ├── tests/
 │   ├── composition/         the root: the wiring between the submodules, its outputs and inputs
-│   └── <name>/              one per submodule (kms, logs, ...), each tested on its own
+│   ├── <name>/              one per submodule (kms, logs, ...), each tested on its own
+│   └── example-<name>/      one per example with Terraform, planned whole
 └── scripts/
     ├── check-no-emdash.sh   no em or en dash in any tracked file
     ├── docs.sh              the generated docs pages match the code; every example has a page
@@ -327,6 +357,9 @@ We give the drivers, not prices: AWS sets those per region and changes them. Che
 - **A standby.** Pathways can run a second engine as a standby that takes over the lease. On ECS that
   needs care: ECS replaces a task its load balancer reports unhealthy, and a standby is not ready by
   design. It comes with its own tests.
+- **Several active engines, blue and green deploys, and promotion to a second region.** Each waits on
+  the engine; the examples folder names what each waits on. Backups in a second region, restored by
+  hand, are here today: [`examples/cross-region-backup`](examples/cross-region-backup).
 - **SFTP from the internet.** The SFTP endpoint is internal: partners reach it over your VPN or
   another private link. An internet-facing endpoint needs Elastic IPs, which the module does not
   create yet.
