@@ -17,7 +17,7 @@ variable "private_subnet_ids" {
 }
 
 variable "allowed_cidr_blocks" {
-  description = "The networks your senders connect from."
+  description = "The networks your MLLP senders connect from."
   type        = list(string)
   default     = ["10.20.0.0/16"]
 }
@@ -28,14 +28,20 @@ variable "image" {
   default     = "123456789012.dkr.ecr.us-east-1.amazonaws.com/integration@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 }
 
-variable "alb_certificate_arn" {
-  description = "The ACM certificate for the HTTP sources' listeners."
-  type        = string
-  default     = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
-}
-
 variable "master_key_secret_arn" {
   description = "The Secrets Manager secret holding the master key: 32 random bytes in base64."
   type        = string
   default     = "arn:aws:secretsmanager:us-east-1:123456789012:secret:integration/master-key-AbCdEf"
+}
+
+variable "sftp_allowed_cidr_blocks" {
+  description = "The networks the lab connects to SFTP from."
+  type        = list(string)
+  default     = ["10.30.0.0/24"]
+}
+
+variable "lab_public_key" {
+  description = "The lab's SSH public key, one OpenSSH line. The placeholder is no real key."
+  type        = string
+  default     = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA lab-key"
 }

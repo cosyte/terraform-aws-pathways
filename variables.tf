@@ -266,6 +266,11 @@ variable "environment" {
     condition     = !contains(keys(var.environment), "PATHWAYS_DATABASE_URL")
     error_message = "PATHWAYS_DATABASE_URL is set by the module from the database it creates: leave it out of environment."
   }
+
+  validation {
+    condition     = !var.bucket_enabled || !contains(keys(var.environment), "PATHWAYS_BUCKET")
+    error_message = "PATHWAYS_BUCKET is set by the module from the bucket it creates when bucket_enabled is true: leave it out of environment."
+  }
 }
 
 variable "secrets" {
@@ -286,6 +291,11 @@ variable "secrets" {
   validation {
     condition     = !contains(keys(var.secrets), "PATHWAYS_DATABASE_URL")
     error_message = "PATHWAYS_DATABASE_URL is set by the module from the database it creates: leave it out of secrets."
+  }
+
+  validation {
+    condition     = !var.bucket_enabled || !contains(keys(var.secrets), "PATHWAYS_BUCKET")
+    error_message = "PATHWAYS_BUCKET is set by the module from the bucket it creates when bucket_enabled is true: leave it out of secrets."
   }
 
   validation {
@@ -427,4 +437,98 @@ variable "deletion_protection" {
   description = "Whether the database and the load balancers refuse deletion. Turn it off, and apply, before you destroy the module."
   type        = bool
   default     = true
+}
+
+# ---------------------------------------------------------------------------
+# The bucket (optional)
+# ---------------------------------------------------------------------------
+
+variable "bucket_enabled" {
+  description = "Whether to create an S3 bucket for the engine's file sources and destinations (modules/bucket): encrypted under the module's key, versioned, public access blocked, TLS only, with server access logs to a second bucket. The task role may list it and read, write and delete its objects, and the engine gets its name as PATHWAYS_BUCKET, so a channel's s3 block reads bucket: { env: PATHWAYS_BUCKET } with no credential. Off by default."
+  type        = bool
+  default     = false
+}
+
+variable "bucket_lifecycle_rules" {
+  description = "The bucket's lifecycle rules, by id, each for the keys under prefix: expiration_days for current objects, noncurrent_version_expiration_days for replaced and deleted versions, abort_incomplete_multipart_upload_days. Null leaves an action out. Pathways deletes each object it reads, which in a versioned bucket leaves a noncurrent version: the default removes those after 30 days and unfinished uploads after 7."
+  type = map(object({
+    prefix                                 = optional(string, "")
+    expiration_days                        = optional(number)
+    noncurrent_version_expiration_days     = optional(number)
+    abort_incomplete_multipart_upload_days = optional(number)
+  }))
+  default = {
+    default = {
+      noncurrent_version_expiration_days     = 30
+      abort_incomplete_multipart_upload_days = 7
+    }
+  }
+}
+
+variable "bucket_access_log_retention_days" {
+  description = "How many days the log bucket keeps the bucket's server access logs."
+  type        = number
+  default     = 365
+}
+
+# ---------------------------------------------------------------------------
+# SFTP (optional)
+# ---------------------------------------------------------------------------
+
+variable "sftp_enabled" {
+  description = "Whether to create an AWS Transfer Family SFTP server in front of the bucket (modules/sftp), for partners who drop and pick up files: a VPC endpoint with no public address, reachable from sftp_allowed_cidr_blocks only, its users locked to their home prefixes. It needs bucket_enabled. Off by default."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.sftp_enabled || var.bucket_enabled
+    error_message = "sftp_enabled needs bucket_enabled: the SFTP users' homes are in the module's bucket."
+  }
+}
+
+variable "sftp_allowed_cidr_blocks" {
+  description = "The networks allowed to connect to the SFTP endpoint, on port 22. Needed when sftp_enabled is true. 0.0.0.0/0, and any other /0 block, is refused."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.sftp_allowed_cidr_blocks : can(cidrnetmask(c))])
+    error_message = "Each sftp_allowed_cidr_blocks entry must be an IPv4 CIDR block, such as 10.20.0.0/16."
+  }
+
+  validation {
+    condition     = alltrue([for c in var.sftp_allowed_cidr_blocks : !can(cidrnetmask(c)) || try(tonumber(split("/", c)[1]) > 0, false)])
+    error_message = "sftp_allowed_cidr_blocks may not hold 0.0.0.0/0, or any /0 block: name the networks that may connect."
+  }
+
+  validation {
+    condition     = !var.sftp_enabled || length(var.sftp_allowed_cidr_blocks) > 0
+    error_message = "sftp_enabled needs at least one block in sftp_allowed_cidr_blocks: nothing may connect until you say who."
+  }
+}
+
+variable "sftp_subnet_ids" {
+  description = "Subnets for the SFTP endpoint. Null uses private_subnet_ids. The endpoint gets no Elastic IP, so it stays internal to the VPC."
+  type        = list(string)
+  default     = null
+
+  validation {
+    condition     = var.sftp_subnet_ids == null || try(length(var.sftp_subnet_ids) > 0, false)
+    error_message = "sftp_subnet_ids needs at least one subnet, or null."
+  }
+}
+
+variable "sftp_users" {
+  description = "The SFTP users, by user name, each with its SSH public keys and the prefix in the bucket that is its home, such as partners/lab. A user sees its prefix as / and reaches nothing outside it. modules/sftp checks each name, key and prefix."
+  type = map(object({
+    public_keys = list(string)
+    home_prefix = string
+  }))
+  default = {}
+}
+
+variable "sftp_security_policy_name" {
+  description = "The Transfer Family security policy of the SFTP server: the SSH ciphers, key exchanges and MACs it offers."
+  type        = string
+  default     = "TransferSecurityPolicy-2024-01"
 }

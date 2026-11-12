@@ -40,7 +40,7 @@ output "engine_security_group_id" {
 }
 
 output "task_role_name" {
-  description = "Name of the role the engine and migrate tasks run as. It has no permissions: attach a policy for an extension that calls AWS."
+  description = "Name of the role the engine and migrate tasks run as. It has no permissions but the bucket's, when bucket_enabled is true: attach a policy for an extension that calls AWS."
   value       = module.iam.task_role_name
 }
 
@@ -97,4 +97,44 @@ output "alb_dns_name" {
 output "alb_zone_id" {
   description = "Hosted zone ID of the application load balancer, for a Route 53 alias record, or null."
   value       = module.load_balancers.alb_zone_id
+}
+
+output "bucket_name" {
+  description = "Name of the S3 bucket, which the engine gets as PATHWAYS_BUCKET, or null when bucket_enabled is false."
+  value       = var.bucket_enabled ? module.bucket[0].bucket_name : null
+}
+
+output "bucket_arn" {
+  description = "ARN of the S3 bucket, or null when bucket_enabled is false."
+  value       = var.bucket_enabled ? module.bucket[0].bucket_arn : null
+}
+
+output "bucket_access_logs_bucket_name" {
+  description = "Name of the bucket that receives the S3 bucket's server access logs, or null."
+  value       = var.bucket_enabled ? module.bucket[0].access_logs_bucket_name : null
+}
+
+output "sftp_server_id" {
+  description = "ID of the Transfer Family SFTP server, or null when sftp_enabled is false."
+  value       = var.sftp_enabled ? module.sftp[0].server_id : null
+}
+
+output "sftp_endpoint" {
+  description = "The SFTP server's hostname, or null."
+  value       = var.sftp_enabled ? module.sftp[0].endpoint : null
+}
+
+output "sftp_vpc_endpoint_id" {
+  description = "ID of the SFTP server's VPC endpoint, whose DNS names and private addresses clients inside the VPC connect to, or null."
+  value       = var.sftp_enabled ? module.sftp[0].vpc_endpoint_id : null
+}
+
+output "sftp_security_group_id" {
+  description = "ID of the SFTP endpoint's security group, or null."
+  value       = var.sftp_enabled ? module.sftp[0].security_group_id : null
+}
+
+output "sftp_log_group_name" {
+  description = "Name of the SFTP server's CloudWatch log group, or null."
+  value       = var.sftp_enabled ? module.sftp[0].log_group_name : null
 }

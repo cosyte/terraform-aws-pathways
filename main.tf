@@ -9,6 +9,8 @@
 #   modules/iam              the task execution role and the task role
 #   modules/load_balancers   the network load balancer for MLLP and the application load balancer for HTTP
 #   modules/ecs              the cluster, the engine and migrate task definitions, and the service
+#   modules/bucket           optional (bucket_enabled): an S3 bucket the engine reaches through its task role
+#   modules/sftp             optional (sftp_enabled): a Transfer Family SFTP server in front of that bucket
 
 locals {
   database_subnet_ids      = var.database_subnet_ids != null ? var.database_subnet_ids : var.private_subnet_ids
@@ -26,6 +28,14 @@ locals {
   task_secrets = merge(var.secrets, {
     PATHWAYS_DATABASE_URL = module.database.url_secret_arn
   })
+
+  # With the bucket, PATHWAYS_BUCKET names it, so a channel's s3 block reads
+  # bucket: { env: PATHWAYS_BUCKET }. The task role reaches it, so no credential is passed.
+  task_environment = merge(var.environment, var.bucket_enabled ? {
+    PATHWAYS_BUCKET = module.bucket[0].bucket_name
+  } : {})
+
+  sftp_subnet_ids = var.sftp_subnet_ids != null ? var.sftp_subnet_ids : var.private_subnet_ids
 
   # Each source's target group, for the service. The load_balancers module's outputs are read only
   # after its listeners exist, which ECS needs before it attaches the service.
@@ -145,7 +155,7 @@ module "ecs" {
   memory                            = var.memory
   cpu_architecture                  = var.cpu_architecture
   container_ports                   = local.container_ports
-  environment                       = var.environment
+  environment                       = local.task_environment
   secrets                           = local.task_secrets
   execution_role_arn                = module.iam.execution_role_arn
   task_role_arn                     = module.iam.task_role_arn
@@ -158,4 +168,33 @@ module "ecs" {
   security_group_ids                = [module.security_groups.engine_security_group_id]
   load_balancers                    = local.service_load_balancers
   tags                              = local.tags
+}
+
+module "bucket" {
+  source = "./modules/bucket"
+  count  = var.bucket_enabled ? 1 : 0
+
+  name                      = var.name
+  kms_key_arn               = module.kms.key_arn
+  lifecycle_rules           = var.bucket_lifecycle_rules
+  access_log_retention_days = var.bucket_access_log_retention_days
+  task_role_name            = module.iam.task_role_name
+  tags                      = local.tags
+}
+
+module "sftp" {
+  source = "./modules/sftp"
+  count  = var.sftp_enabled ? 1 : 0
+
+  name                 = var.name
+  vpc_id               = var.vpc_id
+  subnet_ids           = local.sftp_subnet_ids
+  allowed_cidr_blocks  = var.sftp_allowed_cidr_blocks
+  bucket_name          = module.bucket[0].bucket_name
+  kms_key_arn          = module.kms.key_arn
+  users                = var.sftp_users
+  security_policy_name = var.sftp_security_policy_name
+  log_group_name       = "${local.log_group_prefix}/sftp"
+  log_retention_days   = var.log_retention_days
+  tags                 = local.tags
 }

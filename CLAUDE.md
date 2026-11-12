@@ -6,7 +6,7 @@ layout for a module with nested submodules:
 - the root holds only `main.tf` (the composition, which calls the submodules), `variables.tf`,
   `outputs.tf` and `versions.tf`;
 - `modules/<name>/` holds one concern each (`kms`, `logs`, `security_groups`, `database`, `iam`,
-  `load_balancers`, `ecs`), with its own `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a
+  `load_balancers`, `ecs`, and the optional `bucket` and `sftp`, off by default), with its own `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a
   short `README.md`, and each can be used on its own;
 - `examples/` holds whole root modules that call it;
 - `tests/<subject>/` holds the `terraform test` files: `tests/composition` for the root, and

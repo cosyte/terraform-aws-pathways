@@ -99,6 +99,22 @@ mock_provider "aws" {
       id = "sg-00000000000000000"
     }
   }
+
+  mock_resource "aws_s3_bucket" {
+    defaults = {
+      id     = "pathways-test-00000000000000000000000001"
+      bucket = "pathways-test-00000000000000000000000001"
+      arn    = "arn:aws:s3:::pathways-test-00000000000000000000000001"
+    }
+  }
+
+  mock_resource "aws_transfer_server" {
+    defaults = {
+      id       = "s-00000000000000000"
+      arn      = "arn:aws:transfer:us-east-1:123456789012:server/s-00000000000000000"
+      endpoint = "s-00000000000000000.server.transfer.us-east-1.amazonaws.com"
+    }
+  }
 }
 
 variables {
@@ -321,6 +337,182 @@ run "no_sources_no_load_balancers" {
     condition     = [for p in module.ecs.engine_container.portMappings : p.containerPort] == [9091]
     error_message = "With no source the engine listens on the probe port alone."
   }
+}
+
+# ---------------------------------------------------------------------------
+# The bucket and SFTP, both off by default
+# ---------------------------------------------------------------------------
+
+run "no_bucket_and_no_sftp_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(module.bucket) == 0 && length(module.sftp) == 0
+    error_message = "The bucket and the SFTP server are off by default."
+  }
+
+  assert {
+    condition = (
+      output.bucket_name == null && output.bucket_arn == null && output.bucket_access_logs_bucket_name == null
+      && output.sftp_server_id == null && output.sftp_endpoint == null && output.sftp_vpc_endpoint_id == null
+      && output.sftp_security_group_id == null && output.sftp_log_group_name == null
+    )
+    error_message = "With neither, their outputs are null."
+  }
+
+  assert {
+    condition     = !contains([for e in module.ecs.engine_container.environment : e.name], "PATHWAYS_BUCKET")
+    error_message = "With no bucket the engine gets no PATHWAYS_BUCKET."
+  }
+}
+
+run "bucket_reaches_the_engine_through_its_task_role" {
+  command = plan
+
+  variables {
+    bucket_enabled = true
+    environment    = { PATHWAYS_STORAGE = "postgres" }
+  }
+
+  assert {
+    condition     = length(module.bucket) == 1 && length(module.sftp) == 0
+    error_message = "bucket_enabled creates the bucket, and SFTP stays off."
+  }
+
+  assert {
+    condition = module.ecs.engine_container.environment == [
+      { name = "PATHWAYS_BUCKET", value = "pathways-test-00000000000000000000000001" },
+      { name = "PATHWAYS_STORAGE", value = "postgres" },
+    ]
+    error_message = "The engine gets the bucket's name as PATHWAYS_BUCKET, beside the caller's settings."
+  }
+
+  assert {
+    condition = (
+      output.bucket_name == "pathways-test-00000000000000000000000001"
+      && output.bucket_arn == "arn:aws:s3:::pathways-test-00000000000000000000000001"
+    )
+    error_message = "The bucket outputs come from the bucket submodule."
+  }
+
+  assert {
+    condition = (
+      module.bucket[0].task_policy_role_name == output.task_role_name
+      && output.task_role_name == "pathways-test-task"
+    )
+    error_message = "The bucket's policy is for the task role the engine runs as."
+  }
+
+  assert {
+    condition     = !anytrue([for s in module.ecs.engine_container.secrets : startswith(s.name, "AWS_")]) && !anytrue([for e in module.ecs.engine_container.environment : startswith(e.name, "AWS_")])
+    error_message = "No static AWS credential is passed to the engine: it reaches the bucket through its task role."
+  }
+}
+
+run "sftp_fronts_the_bucket" {
+  command = plan
+
+  variables {
+    bucket_enabled           = true
+    sftp_enabled             = true
+    sftp_allowed_cidr_blocks = ["10.30.0.0/24"]
+    sftp_users = {
+      lab = {
+        public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA lab-key"]
+        home_prefix = "partners/lab"
+      }
+    }
+  }
+
+  assert {
+    condition     = length(module.sftp) == 1
+    error_message = "sftp_enabled creates the SFTP server."
+  }
+
+  assert {
+    condition = (
+      output.sftp_server_id == "s-00000000000000000"
+      && output.sftp_endpoint == "s-00000000000000000.server.transfer.us-east-1.amazonaws.com"
+      && output.sftp_log_group_name == "/pathways/test/sftp"
+      && output.sftp_security_group_id == "sg-00000000000000000"
+    )
+    error_message = "The SFTP outputs come from the sftp submodule, and its log group is under the prefix the key's policy lets CloudWatch Logs use."
+  }
+}
+
+run "sftp_endpoint_defaults_to_the_private_subnets" {
+  command = plan
+
+  variables {
+    bucket_enabled           = true
+    sftp_enabled             = true
+    sftp_allowed_cidr_blocks = ["10.30.0.0/24"]
+  }
+
+  assert {
+    condition     = local.sftp_subnet_ids == var.private_subnet_ids
+    error_message = "With no sftp_subnet_ids the endpoint is in the private subnets."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Root inputs refused
+# ---------------------------------------------------------------------------
+
+run "sftp_without_the_bucket_is_refused" {
+  command = plan
+
+  variables {
+    sftp_enabled             = true
+    sftp_allowed_cidr_blocks = ["10.30.0.0/24"]
+  }
+
+  expect_failures = [var.sftp_enabled]
+}
+
+run "sftp_open_to_anywhere_is_refused" {
+  command = plan
+
+  variables {
+    bucket_enabled           = true
+    sftp_enabled             = true
+    sftp_allowed_cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  expect_failures = [var.sftp_allowed_cidr_blocks]
+}
+
+run "sftp_with_no_allowed_network_is_refused" {
+  command = plan
+
+  variables {
+    bucket_enabled = true
+    sftp_enabled   = true
+  }
+
+  expect_failures = [var.sftp_allowed_cidr_blocks]
+}
+
+run "bucket_name_from_caller_is_refused" {
+  command = plan
+
+  variables {
+    bucket_enabled = true
+    environment    = { PATHWAYS_BUCKET = "pathways-other" }
+  }
+
+  expect_failures = [var.environment]
+}
+
+run "bucket_name_in_secrets_is_refused" {
+  command = plan
+
+  variables {
+    bucket_enabled = true
+    secrets        = { PATHWAYS_BUCKET = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test/bucket-AbCdEf" }
+  }
+
+  expect_failures = [var.secrets]
 }
 
 # ---------------------------------------------------------------------------
