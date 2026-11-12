@@ -1,0 +1,128 @@
+# The module's checks, the same commands as the Gate in CLAUDE.md. None of them needs AWS
+# credentials: no job assumes a role, reads a secret or declares an environment, so a run on any
+# pull request reaches the same answer. Nothing here plans against or applies to a real account.
+#
+#   fmt         terraform fmt -check -recursive
+#   validate    terraform init -backend=false and validate, the module and each example
+#   tf-test     terraform test against a mocked aws provider, plan only (tests/run.sh)
+#   tf-policy   tflint with the AWS ruleset, and trivy config (tests/policy/run.sh)
+#   actionlint  every workflow file
+#
+# There is no paths filter, so every job reports on every pull request and each can be a required
+# check. The job ids are the check names GitHub reports: rename one only together with the ruleset.
+#
+# Actions are pinned by full commit SHA, the release tag in the comment beside each. Tool versions
+# come from mise.toml.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the pinned Terraform version
+        id: pins
+        run: echo "terraform=$(awk -F'"' '/^terraform[[:space:]]*=/ {print $(NF-1)}' mise.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.pins.outputs.terraform }}
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the pinned Terraform version
+        id: pins
+        run: echo "terraform=$(awk -F'"' '/^terraform[[:space:]]*=/ {print $(NF-1)}' mise.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.pins.outputs.terraform }}
+          terraform_wrapper: false
+
+      - name: terraform validate, the module and each example
+        run: scripts/validate.sh
+
+  tf-test:
+    name: tf-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the pinned Terraform version
+        id: pins
+        run: echo "terraform=$(awk -F'"' '/^terraform[[:space:]]*=/ {print $(NF-1)}' mise.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.pins.outputs.terraform }}
+          terraform_wrapper: false
+
+      - name: terraform test, mocked providers, plan only
+        run: tests/run.sh
+
+  tf-policy:
+    name: tf-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: tflint (AWS ruleset) and trivy config
+        env:
+          # tflint --init fetches the AWS ruleset from GitHub; the token raises the rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: tests/policy/run.sh
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install actionlint at the version pinned in mise.toml
+        run: |
+          set -euo pipefail
+          v=$(awk -F'"' '/^actionlint[[:space:]]*=/ {print $(NF-1)}' mise.toml)
+          if [ -z "$v" ]; then
+            echo "::error::no actionlint pin in mise.toml"
+            exit 1
+          fi
+          base="https://github.com/rhysd/actionlint/releases/download/v${v}"
+          tarball="actionlint_${v}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/${tarball}" "${base}/${tarball}"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/checksums.txt" "${base}/actionlint_${v}_checksums.txt"
+          ( cd "${RUNNER_TEMP}" && grep " ${tarball}\$" checksums.txt | sha256sum -c - )
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}" actionlint
+          "${RUNNER_TEMP}/actionlint" --version
+
+      - name: actionlint over .github/workflows/
+        run: |
+          "${RUNNER_TEMP}/actionlint" -color

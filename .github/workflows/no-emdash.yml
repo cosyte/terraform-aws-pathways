@@ -1,0 +1,44 @@
+# Brand gate: no em dash and no en dash, in the tracked files and in what a squash merge writes to
+# main: the pull request's title and body, and the commit messages on the branch. The `edited`
+# trigger re-checks a pull request after its title or body changes.
+
+name: Em-dash gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  no-emdash:
+    name: no-emdash
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The commit-message half needs the branch's history, not just its tip.
+          fetch-depth: 0
+
+      - name: Tracked files
+        run: scripts/check-no-emdash.sh
+
+      # The title and body are user input: they reach the script through env, never through an
+      # expression inside the script.
+      - name: Pull request title and body
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" \
+            | scripts/check-no-emdash.sh --stdin 'the pull request title and body'
+
+      - name: Commit messages on this branch
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git log --format=%B "${BASE_SHA}..${HEAD_SHA}" \
+            | scripts/check-no-emdash.sh --stdin 'the commit messages on this branch'

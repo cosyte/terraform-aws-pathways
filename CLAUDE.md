@@ -6,14 +6,31 @@ layout for one module per repository: `versions.tf`, `variables.tf`, `main.tf`, 
 
 ## Gate
 
-From the repo root, on the pinned versions (`mise install`):
+From the repo root, in this order, on the versions `mise.toml` pins. Each command names the tool it
+needs, so mise installs only that one: mise's own install of tflint fails its attestation check, and
+`tests/policy/run.sh` downloads tflint at its pin instead, checked against the release's checksums.
 
 ```sh
-terraform fmt -check -recursive
+mise exec terraform -- terraform fmt -check -recursive
+scripts/check-no-emdash.sh
+mise exec terraform -- scripts/validate.sh
+mise exec trivy -- tests/policy/run.sh
+mise exec actionlint -- actionlint
+mise exec terraform -- tests/run.sh
 ```
 
-Add each further check here in the same change that adds it: `terraform validate`, `terraform test`
-with mocked providers, tflint, trivy config and actionlint.
+- `scripts/validate.sh`: `terraform init -backend=false` and `terraform validate`, in the root and in
+  each `examples/` directory.
+- `tests/policy/run.sh`: tflint with the AWS ruleset (`.tflint.hcl`), then `trivy config` at HIGH and
+  CRITICAL. An accepted trivy finding is an inline `#trivy:ignore:<ID>` with its reason, listed in the
+  README.
+- `tests/run.sh`: `terraform test` over `tests/*.tftest.hcl`, plan only, against a mocked aws provider,
+  with every AWS credential taken away. It refuses a run block that does not plan.
+
+CI runs the same checks on every pull request, each its own job in `.github/workflows/ci.yml`
+(`fmt`, `validate`, `tf-test`, `tf-policy`, `actionlint`), with `no-emdash` (the tracked files and
+the pull request's title, body and commits) and `pr-title / conventional-commits` beside them. A
+session never runs `terraform plan` or `apply` against an account: no credentials exist here.
 
 ## Hazard: this module creates infrastructure that carries PHI
 
