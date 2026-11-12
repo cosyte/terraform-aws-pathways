@@ -212,8 +212,9 @@ run "each_user_is_locked_to_its_home_prefix" {
       for s in data.aws_iam_policy_document.user["lab"].statement :
       toset(s.actions) == toset(["kms:GenerateDataKey", "kms:Decrypt"]) && toset(s.resources) == toset([var.kms_key_arn])
       && anytrue([for c in s.condition : c.variable == "kms:ViaService" && toset(c.values) == toset(["s3.us-east-1.amazonaws.com"])])
+      && anytrue([for c in s.condition : c.variable == "kms:EncryptionContext:aws:s3:arn" && toset(c.values) == toset(["arn:aws:s3:::pathways-test-00000000000000000000000001", "arn:aws:s3:::pathways-test-00000000000000000000000001/*"])])
     ])
-    error_message = "The user's role uses the key through S3 alone."
+    error_message = "The user's role uses the key through S3 alone, for this bucket alone."
   }
 
   assert {
@@ -364,6 +365,66 @@ run "home_prefix_climbing_out_is_refused" {
       lab = {
         public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
         home_prefix = "partners/../lab"
+      }
+    }
+  }
+
+  expect_failures = [var.users]
+}
+
+# The prefix goes into the role policy's resource and s3:prefix condition, where * is a
+# wildcard: partners/* would reach every partner's home.
+run "home_prefix_with_a_wildcard_segment_is_refused" {
+  command = plan
+
+  module {
+    source = "./modules/sftp"
+  }
+
+  variables {
+    users = {
+      lab = {
+        public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        home_prefix = "partners/*"
+      }
+    }
+  }
+
+  expect_failures = [var.users]
+}
+
+# A bare * would give the role the whole bucket.
+run "home_prefix_of_a_bare_wildcard_is_refused" {
+  command = plan
+
+  module {
+    source = "./modules/sftp"
+  }
+
+  variables {
+    users = {
+      lab = {
+        public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        home_prefix = "*"
+      }
+    }
+  }
+
+  expect_failures = [var.users]
+}
+
+run "home_prefix_with_a_wildcard_inside_a_segment_is_refused" {
+  command = plan
+
+  module {
+    source = "./modules/sftp"
+  }
+
+  variables {
+    users = {
+      lab = {
+        public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]
+        home_prefix = "partners/lab*"
       }
     }
   }

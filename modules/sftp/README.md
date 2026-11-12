@@ -13,7 +13,8 @@ when `sftp_enabled` is true, on the bucket submodule's bucket.
 - **Users** are service managed and sign in with the SSH public keys you give, never a password.
   Each is locked to its `home_prefix` twice: a logical home directory maps `/` to the prefix, so the
   user sees nothing above it, and the user's own role lists, reads, writes and deletes under that
-  prefix alone. Only this server, in your account, may assume those roles.
+  prefix alone. A `home_prefix` with `*` or `?`, which that role policy would read as wildcards, or
+  with a `.` or `..` segment, is refused. Only this server, in your account, may assume those roles.
 - **Logs**: structured JSON logs to a CloudWatch log group, encrypted under your key and kept for
   `log_retention_days`. They name users, files and addresses, never a file's content.
 

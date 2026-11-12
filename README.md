@@ -255,9 +255,11 @@ What the `bucket` and `sftp` submodules do rests on these pages:
   ([Blocking public access to your Amazon S3 storage](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html)),
   and ACLs off with `BucketOwnerEnforced`
   ([Controlling ownership of objects and disabling ACLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/about-object-ownership.html)).
-- TLS only: a bucket policy denying requests where `aws:SecureTransport` is false, and with
-  `s3:TlsVersion` below 1.2
-  ([Security best practices for Amazon S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html)).
+- TLS only: a bucket policy denying requests where `aws:SecureTransport` is false
+  ([Security best practices for Amazon S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html)),
+  and with `s3:TlsVersion` below 1.2, the numeric condition key S3 sets to the TLS version the
+  client used
+  ([Actions, resources, and condition keys for Amazon S3](https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazons3.html)).
 - Server access logs: delivered by `logging.s3.amazonaws.com`, granted in the log bucket's policy
   with `aws:SourceArn` and `aws:SourceAccount`, to a log bucket whose default encryption is SSE-S3,
   since a customer managed key is not supported there

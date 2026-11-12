@@ -225,6 +225,14 @@ data "aws_iam_policy_document" "user" {
       variable = "kms:ViaService"
       values   = ["s3.${local.region}.amazonaws.com"]
     }
+
+    # S3 names the bucket in the encryption context: the bucket's ARN with a Bucket Key, the
+    # object's without one.
+    condition {
+      test     = "StringLike"
+      variable = "kms:EncryptionContext:aws:s3:arn"
+      values   = [local.bucket_arn, "${local.bucket_arn}/*"]
+    }
   }
 }
 

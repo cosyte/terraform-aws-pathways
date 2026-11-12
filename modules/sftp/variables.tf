@@ -85,14 +85,16 @@ variable "users" {
     error_message = "Each public key must be one OpenSSH public key line: ssh-ed25519, ecdsa-sha2-nistp256, -384 or -521, or ssh-rsa, then the key in base64, then an optional comment. Never a private key."
   }
 
+  # The prefix goes unchanged into the user's role policy, as an object ARN and an s3:prefix
+  # StringLike value, where * and ? are wildcards: neither is allowed.
   validation {
     condition = alltrue([
       for u in values(var.users) :
-      can(regex("^[A-Za-z0-9!_.*'()-]+(/[A-Za-z0-9!_.*'()-]+)*$", u.home_prefix))
+      can(regex("^[A-Za-z0-9!_.'()-]+(/[A-Za-z0-9!_.'()-]+)*$", u.home_prefix))
       && !contains(split("/", u.home_prefix), ".")
       && !contains(split("/", u.home_prefix), "..")
     ])
-    error_message = "Each home_prefix must be a key prefix such as partners/lab: segments of letters, digits and !_.*'()- joined by single slashes, with no leading or trailing slash and no . or .. segment."
+    error_message = "Each home_prefix must be a key prefix such as partners/lab: segments of letters, digits and !_.'()- joined by single slashes, with no leading or trailing slash, no . or .. segment and no * or ?, which the user's role policy would read as wildcards."
   }
 }
 
