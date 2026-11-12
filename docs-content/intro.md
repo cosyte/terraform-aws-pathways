@@ -12,7 +12,7 @@ description: "A Terraform module that runs Pathways, our open-source healthcare 
 ECS Fargate, in an AWS account and VPC of your own. It deploys your project's own image, named by
 digest, with everything the engine needs around it: a PostgreSQL database, a key, the secrets, the
 load balancers and the logs. When you ask for them, it adds an S3 bucket and an SFTP server for file
-exchange.
+exchange, and CloudWatch alarms on the engine's own metrics.
 
 > **Not released yet.** The module is tested against mocked providers, but no version is tagged or
 > published to a registry, and we have not applied it to a real account yet. Read it, plan it, and
@@ -31,7 +31,9 @@ exchange.
   HTTP sources, each internal by default and each created only when you name a source of its kind.
 - **Two CloudWatch log groups**, encrypted under the module's key.
 - **Optional**: an S3 bucket (`bucket_enabled`) and an AWS Transfer Family SFTP server in front of it
-  (`sftp_enabled`), both off by default.
+  (`sftp_enabled`), and four CloudWatch alarms on the engine's metrics, read by a collector beside
+  the engine (`alarms_enabled`, see [Turn on the alarms](./turn-on-the-alarms.md)), all off by
+  default.
 
 The module has no provider block: your `aws` provider, its region and its `default_tags` apply.
 

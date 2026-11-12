@@ -197,6 +197,31 @@ variable "load_balancers" {
   }
 }
 
+variable "metrics_collector" {
+  description = "A metrics collector to run beside the engine in its task, which reads the engine's /metrics over the task's loopback: its image by digest, its configuration (passed as PATHWAYS_COLLECTOR_CONFIG and read with --config=env:PATHWAYS_COLLECTOR_CONFIG, as an OpenTelemetry collector takes it), and the Secrets Manager secret of the health endpoint's bearer token, which ECS injects into the engine and the collector as PATHWAYS_HEALTH_TOKEN. The execution role must be allowed to read it. Null runs the engine alone."
+  type = object({
+    image            = string
+    config           = string
+    token_secret_arn = string
+  })
+  default = null
+
+  validation {
+    condition     = var.metrics_collector == null ? true : can(regex("^[^@[:space:]]+@sha256:[0-9a-f]{64}$", var.metrics_collector.image))
+    error_message = "metrics_collector.image must name the image by digest, ending in @sha256: and 64 lowercase hex digits."
+  }
+
+  validation {
+    condition     = var.metrics_collector == null ? true : can(regex("^arn:aws[a-z-]*:secretsmanager:", var.metrics_collector.token_secret_arn))
+    error_message = "metrics_collector.token_secret_arn must be the ARN of a Secrets Manager secret."
+  }
+
+  validation {
+    condition     = var.metrics_collector == null ? true : !contains(concat(keys(var.secrets), keys(var.environment)), "PATHWAYS_HEALTH_TOKEN")
+    error_message = "With metrics_collector the engine reads PATHWAYS_HEALTH_TOKEN from its secret: leave it out of secrets and environment."
+  }
+}
+
 variable "tags" {
   description = "Tags added to every resource the module creates. The caller's provider default_tags apply as well."
   type        = map(string)

@@ -559,3 +559,117 @@ variable "sftp_security_policy_name" {
   type        = string
   default     = "TransferSecurityPolicy-2024-01"
 }
+
+variable "alarms_enabled" {
+  description = "Whether to alarm on the engine's own metrics (modules/alarms): a collector beside the engine in its task reads /metrics on the health endpoint with a token the module generates, keeps four metrics with no channel or destination name, writes them to CloudWatch, and four CloudWatch alarms publish to alarms_sns_topic_arn. Your pathways.yaml needs a health block on alarms_health_port. CloudWatch bills for the metrics, the alarms and the log lines, and Secrets Manager for the token's secret. Off by default: nothing is created and nothing is billed until you turn it on."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.alarms_enabled || !contains(concat(keys(var.secrets), keys(var.environment)), "PATHWAYS_HEALTH_TOKEN")
+    error_message = "With alarms_enabled the module generates the health endpoint's token and gives it to the engine as PATHWAYS_HEALTH_TOKEN: leave it out of secrets and environment."
+  }
+}
+
+variable "alarms_sns_topic_arn" {
+  description = "ARN of the SNS topic the alarms publish to, on alarm and on OK. Required when alarms_enabled is true. You create the topic and its subscriptions; if it is encrypted, its key must let CloudWatch use it."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.alarms_sns_topic_arn == null ? true : can(regex("^arn:aws[a-z-]*:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]+(\\.fifo)?$", var.alarms_sns_topic_arn))
+    error_message = "alarms_sns_topic_arn must be the ARN of an SNS topic, such as arn:aws:sns:us-east-1:123456789012:pathways-alarms."
+  }
+
+  validation {
+    condition     = !var.alarms_enabled || var.alarms_sns_topic_arn != null
+    error_message = "alarms_enabled needs alarms_sns_topic_arn: the alarms publish to a topic you create."
+  }
+}
+
+variable "alarms_collector_image" {
+  description = "The metrics collector's image, by digest: an OpenTelemetry collector with the prometheus receiver, the filter and metricstransform processors and the awsemf exporter, such as AWS Distro for OpenTelemetry, public.ecr.aws/aws-observability/aws-otel-collector:<version>@sha256:<digest>. Required when alarms_enabled is true. A tag alone is refused. Built for the cpu_architecture chosen."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.alarms_collector_image == null ? true : can(regex("^[^@[:space:]]+@sha256:[0-9a-f]{64}$", var.alarms_collector_image))
+    error_message = "alarms_collector_image must name the image by digest, ending in @sha256: and 64 lowercase hex digits."
+  }
+
+  validation {
+    condition     = !var.alarms_enabled || var.alarms_collector_image != null
+    error_message = "alarms_enabled needs alarms_collector_image, the collector's image by digest."
+  }
+}
+
+variable "alarms_health_port" {
+  description = "The port of the engine's health endpoint, the health block of your pathways.yaml, which serves /metrics. The collector reads it at 127.0.0.1 inside the task, so the block keeps its default host, 127.0.0.1, with plaintext: true; the port is not mapped and nothing outside the task reaches it. Used when alarms_enabled is true."
+  type        = number
+  default     = 9090
+
+  validation {
+    condition     = var.alarms_health_port >= 1 && var.alarms_health_port <= 65535 && floor(var.alarms_health_port) == var.alarms_health_port
+    error_message = "alarms_health_port must be a whole port from 1 to 65535."
+  }
+
+  validation {
+    condition     = !var.alarms_enabled || !contains(concat([for s in values(var.mllp_sources) : s.port], [for s in values(var.http_sources) : s.port], [var.probe_port]), var.alarms_health_port)
+    error_message = "alarms_health_port needs a port of its own: not an MLLP source's, an HTTP source's or the probe listener's."
+  }
+}
+
+variable "alarms_health_token_version" {
+  description = "Raise this by one to write a new health token: the module generates one and writes it to its secret, and neither the plan nor the state ever holds it. The engine and the collector read it when a task starts, so force a new deployment of the service after you raise it."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.alarms_health_token_version >= 1 && floor(var.alarms_health_token_version) == var.alarms_health_token_version
+    error_message = "alarms_health_token_version must be a whole number, 1 or more."
+  }
+}
+
+variable "alarms_store_down_minutes" {
+  description = "How many minutes in a row pathways_store_up must be below 1, or missing, before the store down alarm fires. Missing counts, so an engine or a collector that stopped reporting fires it too."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.alarms_store_down_minutes >= 1 && var.alarms_store_down_minutes <= 60 && floor(var.alarms_store_down_minutes) == var.alarms_store_down_minutes
+    error_message = "alarms_store_down_minutes must be a whole number from 1 to 60."
+  }
+}
+
+variable "alarms_oldest_pending_age_seconds" {
+  description = "The oldest pending age alarm fires when the oldest delivery waiting on any destination has waited longer than this, in seconds, for 5 minutes in a row."
+  type        = number
+  default     = 600
+
+  validation {
+    condition     = var.alarms_oldest_pending_age_seconds >= 0
+    error_message = "alarms_oldest_pending_age_seconds must be 0 or more."
+  }
+}
+
+variable "alarms_refused_messages_threshold" {
+  description = "The refused messages alarm fires when the bodies the sources refused (unreadable or rejected, all channels together) number more than this in 15 minutes. 0 fires on the first one."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.alarms_refused_messages_threshold >= 0 && floor(var.alarms_refused_messages_threshold) == var.alarms_refused_messages_threshold
+    error_message = "alarms_refused_messages_threshold must be a whole number, 0 or more."
+  }
+}
+
+variable "alarms_settled_failed_threshold" {
+  description = "The settled destinations failing alarm fires when the messages that settled as failed with a destination (all channels and destinations together) number more than this in 15 minutes. 0 fires on the first one."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.alarms_settled_failed_threshold >= 0 && floor(var.alarms_settled_failed_threshold) == var.alarms_settled_failed_threshold
+    error_message = "alarms_settled_failed_threshold must be a whole number, 0 or more."
+  }
+}

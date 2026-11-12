@@ -26,6 +26,17 @@ locals {
   container_environment = [for k in sort(keys(var.environment)) : { name = k, value = var.environment[k] }]
   container_secrets     = [for k in sort(keys(var.secrets)) : { name = k, valueFrom = var.secrets[k] }]
 
+  # With a metrics collector the engine also reads the health endpoint's token, which the collector
+  # presents; the migrate task serves no health endpoint and does not. Without one, the engine's
+  # secrets are exactly var.secrets.
+  engine_secrets = var.metrics_collector == null ? var.secrets : merge(var.secrets, {
+    (local.health_token_variable) = var.metrics_collector.token_secret_arn
+  })
+  engine_container_secrets = [for k in sort(keys(local.engine_secrets)) : { name = k, valueFrom = local.engine_secrets[k] }]
+
+  health_token_variable     = "PATHWAYS_HEALTH_TOKEN"
+  collector_config_variable = "PATHWAYS_COLLECTOR_CONFIG"
+
   repository_credentials = var.repository_credentials_secret_arn == null ? {} : {
     repositoryCredentials = { credentialsParameter = var.repository_credentials_secret_arn }
   }
@@ -36,7 +47,7 @@ locals {
     essential   = true
     command     = local.engine_command
     environment = local.container_environment
-    secrets     = local.container_secrets
+    secrets     = local.engine_container_secrets
     portMappings = [
       for p in var.container_ports : { containerPort = p, hostPort = p, protocol = "tcp" }
     ]
@@ -74,6 +85,41 @@ locals {
       }
     }
   }, local.repository_credentials)
+
+  # The metrics collector, beside the engine in its task: it reads its configuration from
+  # PATHWAYS_COLLECTOR_CONFIG and the health token from PATHWAYS_HEALTH_TOKEN, scrapes the engine's
+  # /metrics over the task's loopback, and logs to the engine's log group under its own stream
+  # prefix. It is not essential, so the engine runs on if it stops; it maps no port.
+  metrics_collector_container = var.metrics_collector == null ? null : {
+    name      = "metrics-collector"
+    image     = var.metrics_collector.image
+    essential = false
+    command   = ["--config=env:${local.collector_config_variable}"]
+    environment = [
+      { name = local.collector_config_variable, value = var.metrics_collector.config },
+    ]
+    secrets = [
+      { name = local.health_token_variable, valueFrom = var.metrics_collector.token_secret_arn },
+    ]
+    dependsOn = [
+      { containerName = "engine", condition = "START" },
+    ]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = var.engine_log_group_name
+        awslogs-region        = local.region
+        awslogs-stream-prefix = "metrics-collector"
+      }
+    }
+  }
+
+  # The engine's task: the engine alone, as it always was, unless a collector is given.
+  engine_task_container_definitions = (
+    var.metrics_collector == null
+    ? jsonencode([local.engine_container])
+    : jsonencode([local.engine_container, local.metrics_collector_container])
+  )
 }
 
 resource "aws_ecs_cluster" "this" {
@@ -95,7 +141,7 @@ resource "aws_ecs_task_definition" "engine" {
   memory                   = tostring(var.memory)
   execution_role_arn       = var.execution_role_arn
   task_role_arn            = var.task_role_arn
-  container_definitions    = jsonencode([local.engine_container])
+  container_definitions    = local.engine_task_container_definitions
 
   runtime_platform {
     operating_system_family = "LINUX"

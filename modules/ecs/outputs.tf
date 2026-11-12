@@ -32,3 +32,13 @@ output "migrate_container" {
   description = "The migrate task's container definition, as the task definition gives it to ECS."
   value       = local.migrate_container
 }
+
+output "metrics_collector_container" {
+  description = "The metrics collector's container definition, as the engine's task definition gives it to ECS, or null with no metrics_collector. The health token appears as the ARN ECS reads it from, never as its value."
+  value       = local.metrics_collector_container
+}
+
+output "engine_task_container_definitions" {
+  description = "The engine task definition's container definitions, the JSON ECS gets: the engine alone, or the engine and the metrics collector."
+  value       = local.engine_task_container_definitions
+}

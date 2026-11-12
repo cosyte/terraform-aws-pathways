@@ -87,8 +87,10 @@ Three shapes wait on the engine, and their folders hold a README that says so an
 - **Encrypted under one key the module scopes to the deployment**, with the longest deletion window
   AWS allows, so a destroy cannot make data unreadable sooner than it must. The trade-off is the
   final snapshot: see [Destroy a deployment](./destroy-a-deployment.md).
-- **Least privilege.** The task role has no permissions but the bucket's, when the bucket is on. Each
-  SFTP user's role reaches its own prefix alone.
+- **Least privilege.** The task role has no permissions but the bucket's, when the bucket is on, and
+  the metrics log group's, when the alarms are on. Each SFTP user's role reaches its own prefix alone.
+- **Nothing billed that you did not ask for.** The bucket, SFTP, Container Insights and the alarms
+  are each off until you turn them on.
 - **Nothing logged beyond the engine's own lines.** No load balancer access logs, no Performance
   Insights, no PostgreSQL log export, no ECS Exec, and no Container Insights unless you turn it on.
 
@@ -109,13 +111,13 @@ We give the drivers, not prices: AWS sets those per region and changes them. Che
 - **The bucket**: S3 per GB-month stored, noncurrent versions included, and per request.
 - **SFTP**: Transfer Family per hour for each protocol enabled, whether or not anyone connects, and
   per GB transferred. For a small deployment that is often the largest line.
+- **The alarms**, when `alarms_enabled` is on: CloudWatch per custom metric per month (four) and per
+  alarm metric per month (four), CloudWatch Logs per GB of the collector's lines ingested and per
+  GB-month kept, Secrets Manager for the token's secret, and the collector's share of the task's vCPU
+  and memory. See [Turn on the alarms](./turn-on-the-alarms.md).
 
 ## Not here yet
 
-- **Alarms** on the engine's own metrics. The engine serves them at `/metrics` on its health
-  endpoint ([Collect metrics](https://docs.cosyte.com/pathways/collect-metrics)); the module runs no
-  collector and creates no alarm on them yet, so scrape them with a collector of your own until it
-  does.
 - **A standby engine**: ECS replaces a task its load balancer reports unhealthy, and a standby is not
   ready by design, so it needs its own design and tests.
 - **SFTP from the internet**, which needs Elastic IPs.

@@ -182,6 +182,22 @@ map(object({
 
 Default: `{}`
 
+### metrics_collector
+
+A metrics collector to run beside the engine in its task, which reads the engine's /metrics over the task's loopback: its image by digest, its configuration (passed as PATHWAYS_COLLECTOR_CONFIG and read with --config=env:PATHWAYS_COLLECTOR_CONFIG, as an OpenTelemetry collector takes it), and the Secrets Manager secret of the health endpoint's bearer token, which ECS injects into the engine and the collector as PATHWAYS_HEALTH_TOKEN. The execution role must be allowed to read it. Null runs the engine alone.
+
+Type:
+
+```hcl
+object({
+    image            = string
+    config           = string
+    token_secret_arn = string
+  })
+```
+
+Default: `null`
+
 ### tags
 
 Tags added to every resource the module creates. The caller's provider default_tags apply as well.
@@ -219,3 +235,11 @@ The engine's container definition, as the task definition gives it to ECS. Secre
 ### migrate_container
 
 The migrate task's container definition, as the task definition gives it to ECS.
+
+### metrics_collector_container
+
+The metrics collector's container definition, as the engine's task definition gives it to ECS, or null with no metrics_collector. The health token appears as the ARN ECS reads it from, never as its value.
+
+### engine_task_container_definitions
+
+The engine task definition's container definitions, the JSON ECS gets: the engine alone, or the engine and the metrics collector.

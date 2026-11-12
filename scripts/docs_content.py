@@ -51,6 +51,7 @@ SUBMODULES = {
     "ecs": "the cluster, the engine and migrate task definitions, and the service",
     "bucket": "the optional S3 bucket, its access log bucket and the task role's access",
     "sftp": "the optional Transfer Family SFTP server, its users and its logs",
+    "alarms": "the optional alarms on the engine's metrics, the health token and the collector's configuration",
 }
 
 problems: list[str] = []

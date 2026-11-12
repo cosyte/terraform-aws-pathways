@@ -46,7 +46,8 @@ We give what bills, not prices: AWS sets those per region and changes them.
   [`multiple-active-nodes`](../multiple-active-nodes), [`blue-green`](../blue-green) and
   [`second-region-disaster-recovery`](../second-region-disaster-recovery).
 - Backups in another region: see [`cross-region-backup`](../cross-region-backup).
-- Alarms, and the KMS key for the database, which you create and keep outside this example.
+- Alarms: turn them on with `alarms_enabled`, as [`alarms`](../alarms) does.
+- The KMS key for the database, which you create and keep outside this example.
 
 ## Use it
 

@@ -11,6 +11,8 @@
 #   modules/ecs              the cluster, the engine and migrate task definitions, and the service
 #   modules/bucket           optional (bucket_enabled): an S3 bucket the engine reaches through its task role
 #   modules/sftp             optional (sftp_enabled): a Transfer Family SFTP server in front of that bucket
+#   modules/alarms           optional (alarms_enabled): the health token, the metrics collector's
+#                            configuration and log group, and four CloudWatch alarms
 
 locals {
   # An existing database (database_url_secret_arn) replaces the RDS instance the module creates.
@@ -38,6 +40,19 @@ locals {
   task_environment = merge(var.environment, var.bucket_enabled ? {
     PATHWAYS_BUCKET = module.bucket[0].bucket_name
   } : {})
+
+  # With alarms, the engine and the metrics collector read the health token from the alarms
+  # module's secret, which the execution role may then read, and the collector's image joins the
+  # images it may pull. Without them each of these is what it always was.
+  metrics_collector = var.alarms_enabled ? {
+    image            = var.alarms_collector_image
+    config           = module.alarms[0].collector_config
+    token_secret_arn = module.alarms[0].health_token_secret_arn
+  } : null
+  execution_secrets = var.alarms_enabled ? merge(local.task_secrets, {
+    (module.alarms[0].health_token_variable) = module.alarms[0].health_token_secret_arn
+  }) : local.task_secrets
+  task_images = var.alarms_enabled ? [var.image, var.migrate_image, var.alarms_collector_image] : [var.image, var.migrate_image]
 
   sftp_subnet_ids = var.sftp_subnet_ids != null ? var.sftp_subnet_ids : var.private_subnet_ids
 
@@ -128,8 +143,8 @@ module "iam" {
   source = "./modules/iam"
 
   name                              = var.name
-  images                            = [var.image, var.migrate_image]
-  secrets                           = local.task_secrets
+  images                            = local.task_images
+  secrets                           = local.execution_secrets
   repository_credentials_secret_arn = var.repository_credentials_secret_arn
   kms_key_arns                      = concat([module.kms.key_arn], var.secrets_kms_key_arns)
   log_group_arns                    = [module.logs.engine_log_group_arn, module.logs.migrate_log_group_arn]
@@ -179,6 +194,7 @@ module "ecs" {
   subnet_ids                        = var.private_subnet_ids
   security_group_ids                = [module.security_groups.engine_security_group_id]
   load_balancers                    = local.service_load_balancers
+  metrics_collector                 = local.metrics_collector
   tags                              = local.tags
 }
 
@@ -209,4 +225,23 @@ module "sftp" {
   log_group_name       = "${local.log_group_prefix}/sftp"
   log_retention_days   = var.log_retention_days
   tags                 = local.tags
+}
+
+module "alarms" {
+  source = "./modules/alarms"
+  count  = var.alarms_enabled ? 1 : 0
+
+  name                       = var.name
+  log_group_prefix           = local.log_group_prefix
+  kms_key_arn                = module.kms.key_arn
+  log_retention_days         = var.log_retention_days
+  task_role_name             = module.iam.task_role_name
+  sns_topic_arn              = var.alarms_sns_topic_arn
+  health_port                = var.alarms_health_port
+  health_token_version       = var.alarms_health_token_version
+  store_down_minutes         = var.alarms_store_down_minutes
+  oldest_pending_age_seconds = var.alarms_oldest_pending_age_seconds
+  refused_messages_threshold = var.alarms_refused_messages_threshold
+  settled_failed_threshold   = var.alarms_settled_failed_threshold
+  tags                       = local.tags
 }

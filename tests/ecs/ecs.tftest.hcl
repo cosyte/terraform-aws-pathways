@@ -378,3 +378,117 @@ run "more_than_five_load_balancers_is_refused" {
 
   expect_failures = [var.load_balancers]
 }
+
+# ---------------------------------------------------------------------------
+# The metrics collector, none by default
+# ---------------------------------------------------------------------------
+
+run "no_collector_by_default" {
+  command = plan
+
+  module {
+    source = "./modules/ecs"
+  }
+
+  assert {
+    condition     = output.engine_task_container_definitions == jsonencode([output.engine_container]) && output.metrics_collector_container == null
+    error_message = "With no metrics_collector the engine's task holds the engine container alone."
+  }
+}
+
+run "collector_runs_beside_the_engine_and_shares_its_token" {
+  command = plan
+
+  module {
+    source = "./modules/ecs"
+  }
+
+  variables {
+    secrets = { PATHWAYS_KEY_2026_11 = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test/master-key-AbCdEf" }
+    metrics_collector = {
+      image            = "public.ecr.aws/example/collector:1@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      config           = "receivers: {}"
+      token_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:pathways/test/health-token-AbCdEf"
+    }
+  }
+
+  assert {
+    condition     = [for c in jsondecode(aws_ecs_task_definition.engine.container_definitions) : c.name] == ["engine", "metrics-collector"]
+    error_message = "The engine's task runs the engine and the collector."
+  }
+
+  assert {
+    condition = (
+      output.metrics_collector_container.essential == false
+      && output.metrics_collector_container.image == var.metrics_collector.image
+      && output.metrics_collector_container.command == ["--config=env:PATHWAYS_COLLECTOR_CONFIG"]
+      && output.metrics_collector_container.environment == [{ name = "PATHWAYS_COLLECTOR_CONFIG", value = "receivers: {}" }]
+      && !can(output.metrics_collector_container.portMappings)
+      && output.engine_task_container_definitions == jsonencode([output.engine_container, output.metrics_collector_container])
+    )
+    error_message = "The collector is not essential, runs the image given with its configuration from PATHWAYS_COLLECTOR_CONFIG, and maps no port."
+  }
+
+  assert {
+    condition = (
+      output.engine_container.secrets == [
+        { name = "PATHWAYS_HEALTH_TOKEN", valueFrom = var.metrics_collector.token_secret_arn },
+        { name = "PATHWAYS_KEY_2026_11", valueFrom = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test/master-key-AbCdEf" },
+      ]
+      && output.metrics_collector_container.secrets == [
+        { name = "PATHWAYS_HEALTH_TOKEN", valueFrom = var.metrics_collector.token_secret_arn },
+      ]
+    )
+    error_message = "The engine and the collector read the health token from the same secret, by ARN; the collector gets no other secret."
+  }
+
+  assert {
+    condition     = output.migrate_container.secrets == [{ name = "PATHWAYS_KEY_2026_11", valueFrom = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test/master-key-AbCdEf" }]
+    error_message = "The migrate task gets no health token."
+  }
+
+  assert {
+    condition = (
+      output.metrics_collector_container.logConfiguration.options.awslogs-group == "/pathways/test/engine"
+      && output.metrics_collector_container.logConfiguration.options.awslogs-stream-prefix == "metrics-collector"
+    )
+    error_message = "The collector logs to the engine's log group under its own stream prefix."
+  }
+}
+
+run "collector_image_by_tag_alone_is_refused" {
+  command = plan
+
+  module {
+    source = "./modules/ecs"
+  }
+
+  variables {
+    metrics_collector = {
+      image            = "public.ecr.aws/example/collector:latest"
+      config           = "receivers: {}"
+      token_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:pathways/test/health-token-AbCdEf"
+    }
+  }
+
+  expect_failures = [var.metrics_collector]
+}
+
+run "health_token_in_secrets_with_a_collector_is_refused" {
+  command = plan
+
+  module {
+    source = "./modules/ecs"
+  }
+
+  variables {
+    secrets = { PATHWAYS_HEALTH_TOKEN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test/health-token-AbCdEf" }
+    metrics_collector = {
+      image            = "public.ecr.aws/example/collector:1@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      config           = "receivers: {}"
+      token_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:pathways/test/health-token-AbCdEf"
+    }
+  }
+
+  expect_failures = [var.metrics_collector]
+}
