@@ -22,7 +22,9 @@ Every deployment has:
   a step you can see and check.
 - **PostgreSQL on RDS**, Multi-AZ by default, reachable only from the engine and refusing any
   connection without TLS. Its password is generated and written without ever entering the plan or
-  the state, into a Secrets Manager secret that ECS injects as `PATHWAYS_DATABASE_URL`.
+  the state, into a Secrets Manager secret that ECS injects as `PATHWAYS_DATABASE_URL`. Or, with
+  `database_url_secret_arn` and `database_security_group_id`, a PostgreSQL database you already run,
+  and no RDS instance from the module.
 - **A KMS key**, rotated every year, which encrypts the database (unless you give
   `database_kms_key_arn`), its secret and the logs.
 - **Two log groups**, for the engine and the migrate task, which get the engine's JSON lines: ids,
@@ -53,13 +55,29 @@ holds the lease; ECS checks liveness and replaces a stalled engine.
 
 ## The shapes the examples take
 
+Each example is a whole root module in `examples/`, validated and planned against mocked providers
+in CI, with its own page here.
+
 | Shape | Example | Engine and database | Load balancers | Bucket | SFTP |
 | --- | --- | --- | --- | --- | --- |
 | Smallest: one MLLP feed in and out | [minimal](./example-minimal.md) | 0.5 vCPU, 1 GiB; single-AZ `db.t4g.micro` | network | no | no |
+| Production, one engine, the database's standby | [production](./example-production.md) | 2 vCPU, 4 GiB; Multi-AZ `db.m7g.large`, your own key | network | no | no |
 | Complete: MLLP in, files out to a partner | [complete](./example-complete.md) | 1 vCPU, 2 GiB; Multi-AZ `db.t4g.medium` | network | yes | yes |
+| A VPC found by its tags, a subnet tier each | [bring-your-own-vpc](./example-bring-your-own-vpc.md) | 1 vCPU, 2 GiB; Multi-AZ `db.t4g.medium` | network | no | no |
+| A PostgreSQL database you already run | [existing-database](./example-existing-database.md) | 1 vCPU, 2 GiB; yours | network | no | no |
+| MLLP only, two feeds | [mllp-only](./example-mllp-only.md) | 1 vCPU, 2 GiB; Multi-AZ `db.t4g.medium` | network | no | no |
+| HTTPS only | [http-only](./example-http-only.md) | 1 vCPU, 2 GiB; Multi-AZ `db.t4g.medium` | application | no | no |
+| Files only, two partners | [sftp-and-bucket](./example-sftp-and-bucket.md) | 1 vCPU, 2 GiB; Multi-AZ `db.t4g.medium` | none | yes | yes |
+| No public ingress and no NAT gateway | [private-only](./example-private-only.md) | 1 vCPU, 2 GiB; Multi-AZ `db.t4g.medium` | network | no | no |
+| Backups in a second region, restored by hand | [cross-region-backup](./example-cross-region-backup.md) | 1 vCPU, 2 GiB; Multi-AZ `db.t4g.medium` | network | no | no |
 
 The minimal example is for trying the module out: before it carries real traffic, put
 `database_multi_az` and `deletion_protection` back to their defaults.
+
+Three shapes wait on the engine, and their folders hold a README that says so and no Terraform:
+[several active engines on one database](./example-multiple-active-nodes.md),
+[blue and green deploys with a handover](./example-blue-green.md), and
+[a second region with promotion](./example-second-region-disaster-recovery.md).
 
 ## Why the defaults are what they are
 

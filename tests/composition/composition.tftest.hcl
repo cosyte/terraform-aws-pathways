@@ -64,6 +64,7 @@ mock_provider "aws" {
   mock_resource "aws_db_instance" {
     defaults = {
       address = "pathways-test.example.com"
+      arn     = "arn:aws:rds:us-east-1:123456789012:db:pathways-test"
     }
   }
 
@@ -200,7 +201,7 @@ run "database_and_logs_use_the_deployment_key" {
   command = plan
 
   assert {
-    condition     = module.database.storage_kms_key_arn == module.kms.key_arn
+    condition     = module.database[0].storage_kms_key_arn == module.kms.key_arn
     error_message = "With no database_kms_key_arn the database is encrypted under the deployment's key."
   }
 }
@@ -213,7 +214,7 @@ run "database_key_from_caller_reaches_the_database" {
   }
 
   assert {
-    condition     = module.database.storage_kms_key_arn == "arn:aws:kms:us-east-1:123456789012:key/11111111-1111-1111-1111-111111111111"
+    condition     = module.database[0].storage_kms_key_arn == "arn:aws:kms:us-east-1:123456789012:key/11111111-1111-1111-1111-111111111111"
     error_message = "database_kms_key_arn reaches the database's storage."
   }
 
@@ -248,6 +249,92 @@ run "engine_reads_the_database_url_from_the_database_secret" {
     condition     = module.ecs.migrate_container.secrets == module.ecs.engine_container.secrets
     error_message = "The migrate task reads the same secrets, so it loads the same pathways.yaml."
   }
+}
+
+run "database_outputs_name_the_instance_and_its_key" {
+  command = plan
+
+  assert {
+    condition = (
+      output.database_instance_arn == "arn:aws:rds:us-east-1:123456789012:db:pathways-test"
+      && output.database_storage_kms_key_arn == output.kms_key_arn
+    )
+    error_message = "The database's instance ARN and storage key are outputs, for a backup replication in another region."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# An existing database instead of the module's own
+# ---------------------------------------------------------------------------
+
+run "existing_database_replaces_the_rds_instance" {
+  command = plan
+
+  variables {
+    database_url_secret_arn    = "arn:aws:secretsmanager:us-east-1:123456789012:secret:pathways/existing/database-url-AbCdEf"
+    database_security_group_id = "sg-00000000000000009"
+  }
+
+  assert {
+    condition     = length(module.database) == 0
+    error_message = "With database_url_secret_arn the module creates no database, no subnet group and no URL secret."
+  }
+
+  assert {
+    condition     = contains(module.ecs.engine_container.secrets, { name = "PATHWAYS_DATABASE_URL", valueFrom = var.database_url_secret_arn })
+    error_message = "The engine reads PATHWAYS_DATABASE_URL from the caller's secret."
+  }
+
+  assert {
+    condition     = module.ecs.migrate_container.secrets == module.ecs.engine_container.secrets
+    error_message = "The migrate task reads the same secret."
+  }
+
+  assert {
+    condition = (
+      output.database_url_secret_arn == var.database_url_secret_arn
+      && output.database_address == null
+      && output.database_instance_arn == null
+      && output.database_storage_kms_key_arn == null
+    )
+    error_message = "With an existing database the URL output is the caller's secret, and the instance outputs are null."
+  }
+
+  assert {
+    condition     = module.security_groups.database_security_group_id == "sg-00000000000000009"
+    error_message = "The engine reaches the existing database's security group."
+  }
+}
+
+run "existing_database_without_its_security_group_is_refused" {
+  command = plan
+
+  variables {
+    database_url_secret_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:pathways/existing/database-url-AbCdEf"
+  }
+
+  expect_failures = [var.database_security_group_id]
+}
+
+run "database_security_group_without_its_url_is_refused" {
+  command = plan
+
+  variables {
+    database_security_group_id = "sg-00000000000000009"
+  }
+
+  expect_failures = [var.database_security_group_id]
+}
+
+run "existing_database_url_that_is_not_a_secret_arn_is_refused" {
+  command = plan
+
+  variables {
+    database_url_secret_arn    = "postgres://db.example.com:5432/pathways"
+    database_security_group_id = "sg-00000000000000009"
+  }
+
+  expect_failures = [var.database_url_secret_arn]
 }
 
 run "engine_logs_to_the_logs_submodule_groups" {

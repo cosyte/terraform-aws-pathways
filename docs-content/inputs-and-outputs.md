@@ -365,6 +365,22 @@ Type: `string`
 
 Default: `null`
 
+### database_url_secret_arn
+
+ARN of a Secrets Manager secret of your own that holds the connection URL of an existing PostgreSQL database, to use it instead of the RDS instance the module creates. Given, the module creates no database, no subnet group and no URL secret, and the other database_ inputs do nothing; ECS injects this secret as PATHWAYS_DATABASE_URL. It needs database_security_group_id. If the secret is encrypted under a customer managed key, list the key in secrets_kms_key_arns. Null creates the database.
+
+Type: `string`
+
+Default: `null`
+
+### database_security_group_id
+
+With database_url_secret_arn, the security group of the existing database. The module lets the engine reach it on 5432 and adds a rule to it that admits the engine on 5432. Give both or neither.
+
+Type: `string`
+
+Default: `null`
+
 ### deletion_protection
 
 Whether the database and the load balancers refuse deletion. Turn it off, and apply, before you destroy the module.
@@ -510,11 +526,19 @@ ARN of the customer managed KMS key that encrypts the database, its secret and t
 
 ### database_address
 
-Hostname of the PostgreSQL instance. Connections must use TLS, verified against the RDS certificate authority.
+Hostname of the PostgreSQL instance. Connections must use TLS, verified against the RDS certificate authority. Null with an existing database (database_url_secret_arn).
+
+### database_instance_arn
+
+ARN of the RDS instance, for a replication of its automated backups to another region. Null with an existing database (database_url_secret_arn).
+
+### database_storage_kms_key_arn
+
+ARN of the KMS key that encrypts the database's storage, its automated backups and its final snapshot: database_kms_key_arn, or the module's key. Null with an existing database (database_url_secret_arn).
 
 ### database_url_secret_arn
 
-ARN of the Secrets Manager secret holding the database's connection URL, which ECS injects as PATHWAYS_DATABASE_URL.
+ARN of the Secrets Manager secret holding the database's connection URL, which ECS injects as PATHWAYS_DATABASE_URL: the module's own, or database_url_secret_arn.
 
 ### engine_log_group_name
 

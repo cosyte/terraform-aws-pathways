@@ -1,0 +1,25 @@
+# One channel: take orders as JSON over HTTPS from the ordering system and post each on to the lab's
+# API over HTTPS. The lab's URL is a placeholder.
+name: orders-in
+format: json
+
+source:
+  http:
+    # http_sources.orders in the example's main.tf: the application load balancer listens on this
+    # port and forwards to it over HTTPS.
+    port: 8443
+    host: 0.0.0.0
+    path: /orders
+    # The engine serves TLS itself as well, so the load balancer's hop to it is encrypted. Add the
+    # certificate and key to the image.
+    tls:
+      cert: ../../certs/server.pem
+      key: ../../certs/server.key
+    # The module injects the secret as ORDERS_TOKEN.
+    auth:
+      bearer: { env: ORDERS_TOKEN }
+    maxBytes: 5MB
+
+destinations:
+  - http:
+      url: https://lab.example.com/orders

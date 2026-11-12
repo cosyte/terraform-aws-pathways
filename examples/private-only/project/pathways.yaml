@@ -1,0 +1,25 @@
+# The Pathways project this example deploys: copy it into a project `pathways init` made, build the
+# project's image (its Dockerfile names the Pathways image by digest) and pass that image's digest as
+# the example's image variable. Every value the module sets reaches the engine as an environment
+# variable this file reads with { env: NAME }.
+
+storage:
+  kind: { env: PATHWAYS_STORAGE, default: sqlite }
+  postgres:
+    # The module writes the database's URL to a secret ECS injects as PATHWAYS_DATABASE_URL.
+    url: { env: PATHWAYS_DATABASE_URL }
+    # The RDS global bundle, https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem, added
+    # to the image: the database refuses connections without TLS.
+    tls: { ca: certs/rds-global-bundle.pem }
+
+encryption:
+  # 32 random bytes in base64, in a Secrets Manager secret the example passes as secrets.
+  keys: [{ id: "2026-11", env: PATHWAYS_KEY_2026_11 }]
+  current: "2026-11"
+
+# The load balancer checks /readyz here, and ECS runs `pathways probe` against /livez. host:
+# 0.0.0.0 lets them reach it; it carries no message.
+probes:
+  port: 9091
+  host: 0.0.0.0
+  plaintext: true

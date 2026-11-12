@@ -433,6 +433,33 @@ variable "database_kms_key_arn" {
   }
 }
 
+variable "database_url_secret_arn" {
+  description = "ARN of a Secrets Manager secret of your own that holds the connection URL of an existing PostgreSQL database, to use it instead of the RDS instance the module creates. Given, the module creates no database, no subnet group and no URL secret, and the other database_ inputs do nothing; ECS injects this secret as PATHWAYS_DATABASE_URL. It needs database_security_group_id. If the secret is encrypted under a customer managed key, list the key in secrets_kms_key_arns. Null creates the database."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.database_url_secret_arn == null || can(regex("^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:.+$", var.database_url_secret_arn))
+    error_message = "database_url_secret_arn must be the ARN of a Secrets Manager secret (arn:aws:secretsmanager:<region>:<account>:secret:<name>), never the URL itself, or null."
+  }
+}
+
+variable "database_security_group_id" {
+  description = "With database_url_secret_arn, the security group of the existing database. The module lets the engine reach it on 5432 and adds a rule to it that admits the engine on 5432. Give both or neither."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = (var.database_security_group_id == null) == (var.database_url_secret_arn == null)
+    error_message = "database_url_secret_arn and database_security_group_id go together: give both to use an existing database, or neither to have the module create one."
+  }
+
+  validation {
+    condition     = var.database_security_group_id == null || can(regex("^sg-[0-9a-f]{8,17}$", var.database_security_group_id))
+    error_message = "database_security_group_id must be a security group id, such as sg-0a1b2c3d4e5f60718, or null."
+  }
+}
+
 variable "deletion_protection" {
   description = "Whether the database and the load balancers refuse deletion. Turn it off, and apply, before you destroy the module."
   type        = bool

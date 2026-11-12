@@ -37,8 +37,35 @@ run "database_admits_the_engine_only" {
   }
 
   assert {
-    condition     = aws_vpc_security_group_egress_rule.engine_to_database.referenced_security_group_id == aws_security_group.database.id
+    condition     = aws_vpc_security_group_egress_rule.engine_to_database.referenced_security_group_id == aws_security_group.database[0].id
     error_message = "The engine may reach the database."
+  }
+}
+
+run "existing_database_group_is_reached_not_created" {
+  command = plan
+
+  module {
+    source = "./modules/security_groups"
+  }
+
+  variables {
+    database_security_group_id = "sg-00000000000000009"
+  }
+
+  assert {
+    condition     = length(aws_security_group.database) == 0 && output.database_security_group_id == "sg-00000000000000009"
+    error_message = "With database_security_group_id the module creates no database group and uses the one given."
+  }
+
+  assert {
+    condition = (
+      aws_vpc_security_group_egress_rule.engine_to_database.referenced_security_group_id == "sg-00000000000000009"
+      && aws_vpc_security_group_ingress_rule.database_from_engine.security_group_id == "sg-00000000000000009"
+      && aws_vpc_security_group_ingress_rule.database_from_engine.referenced_security_group_id == aws_security_group.engine.id
+      && aws_vpc_security_group_ingress_rule.database_from_engine.from_port == 5432
+    )
+    error_message = "The engine may reach the existing database's group on 5432, and that group admits the engine on 5432."
   }
 }
 

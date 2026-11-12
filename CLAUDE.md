@@ -8,12 +8,16 @@ layout for a module with nested submodules:
 - `modules/<name>/` holds one concern each (`kms`, `logs`, `security_groups`, `database`, `iam`,
   `load_balancers`, `ecs`, and the optional `bucket` and `sftp`, off by default), with its own `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a
   short `README.md`, and each can be used on its own;
-- `examples/` holds whole root modules that call it, each with its page in `docs-content/`;
+- `examples/` holds one folder per deployment shape, each with its page in `docs-content/` and a
+  README that says what it builds, when to choose it, what it costs and what it does not cover: a
+  whole root module that calls this one, with its `tests/example-<name>` directory, or, for a shape
+  the engine cannot run safely yet, a README alone that says so, and never Terraform;
 - `docs-content/` holds the docs.cosyte.com pages, after config's docs-content standard: the
   reference pages and each example page's Files section are generated (`scripts/docs.sh`), the rest
   is written by hand. A tag `vX.Y.Z` releases them (`.github/workflows/release.yml`);
-- `tests/<subject>/` holds the `terraform test` files: `tests/composition` for the root, and
-  `tests/<name>` for each submodule;
+- `tests/<subject>/` holds the `terraform test` files: `tests/composition` for the root,
+  `tests/<name>` for each submodule, and `tests/example-<name>` for each example with Terraform,
+  which plans it whole;
 - `scripts/` holds every command of the gate.
 
 A new concern is a new submodule with its own `tests/<name>` directory, called from the root's
@@ -37,7 +41,9 @@ mise exec terraform -- scripts/test.sh
 ```
 
 - `scripts/validate.sh`: checks the layout above, then `terraform init -backend=false` and
-  `terraform validate` in the root, in each `modules/` directory and in each `examples/` directory.
+  `terraform validate` in the root, in each `modules/` directory and in each `examples/` directory
+  that holds Terraform. It refuses an example with no README, and one with no `main.tf` that holds
+  anything but its README.
 - `scripts/docs.sh`: regenerates the reference pages of `docs-content/` (every input and output of
   the root and of each submodule, read by terraform-docs) and the Files section of each example's
   page, then fails if that changed a file. It also fails when a folder under `examples/` has no page
@@ -48,7 +54,8 @@ mise exec terraform -- scripts/test.sh
   README.
 - `scripts/test.sh`: `terraform test` over each `tests/<subject>/` directory, plan only, against a
   mocked aws provider, with every AWS credential taken away. It refuses a run block that does not
-  plan, and a submodule without its test directory.
+  plan, and a submodule or an example with Terraform without its test directory. Name subjects to
+  run only those, after the same checks: `scripts/test.sh tests/example-minimal`.
 
 CI runs the same checks on every pull request, each its own job in `.github/workflows/ci.yml`
 (`fmt`, `docs`, `validate`, `tf-test`, `tf-policy`, `actionlint`), with `no-emdash` (the tracked files and

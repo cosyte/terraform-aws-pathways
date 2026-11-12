@@ -13,6 +13,10 @@
 #   modules/sftp             optional (sftp_enabled): a Transfer Family SFTP server in front of that bucket
 
 locals {
+  # An existing database (database_url_secret_arn) replaces the RDS instance the module creates.
+  create_database         = var.database_url_secret_arn == null
+  database_url_secret_arn = local.create_database ? module.database[0].url_secret_arn : var.database_url_secret_arn
+
   database_subnet_ids      = var.database_subnet_ids != null ? var.database_subnet_ids : var.private_subnet_ids
   load_balancer_subnet_ids = var.load_balancer_subnet_ids != null ? var.load_balancer_subnet_ids : var.private_subnet_ids
 
@@ -23,10 +27,10 @@ locals {
   # The log groups live under one prefix, which the key policy lets CloudWatch Logs use.
   log_group_prefix = "/pathways/${var.name}"
 
-  # PATHWAYS_DATABASE_URL comes from the secret the database module writes; the caller's secrets
-  # join it.
+  # PATHWAYS_DATABASE_URL comes from the secret the database module writes, or from the caller's
+  # secret for an existing database; the caller's secrets join it.
   task_secrets = merge(var.secrets, {
-    PATHWAYS_DATABASE_URL = module.database.url_secret_arn
+    PATHWAYS_DATABASE_URL = local.database_url_secret_arn
   })
 
   # With the bucket, PATHWAYS_BUCKET names it, so a channel's s3 block reads
@@ -88,10 +92,13 @@ module "security_groups" {
   probe_port          = var.probe_port
   egress_rules        = var.egress_rules
   tags                = local.tags
+
+  database_security_group_id = var.database_security_group_id
 }
 
 module "database" {
   source = "./modules/database"
+  count  = local.create_database ? 1 : 0
 
   name                   = var.name
   subnet_ids             = local.database_subnet_ids
@@ -110,6 +117,11 @@ module "database" {
   password_version       = var.database_password_version
   deletion_protection    = var.deletion_protection
   tags                   = local.tags
+}
+
+moved {
+  from = module.database
+  to   = module.database[0]
 }
 
 module "iam" {

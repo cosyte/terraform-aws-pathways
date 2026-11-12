@@ -10,7 +10,9 @@ engine              -> database                   5432
 engine              -> egress_rules               HTTPS anywhere by default
 ```
 
-A load balancer's group exists only when there is a source of its kind.
+A load balancer's group exists only when there is a source of its kind. With
+`database_security_group_id`, the group of an existing database, the module creates no database group
+and adds the two database rules to that one.
 
 The root module calls it, and it can be used on its own:
 

@@ -13,14 +13,18 @@ no job assumes a role or reads a secret, and nothing plans against or applies to
 ## What we check
 
 - **`terraform test`, plan only, against a mocked `aws` provider**, over one directory per subject:
-  `tests/composition` for the root module, and `tests/<name>` for each submodule. Each run block
-  plans with a set of inputs and asserts what the plan holds: the wiring between submodules, the
-  settings that keep data private and encrypted, and that a wrong input is refused. The script
-  refuses a run block that does not plan and a test file that does not mock `aws`, takes every AWS
-  credential away from Terraform first, and refuses a submodule without its test directory.
-- **`terraform validate`** of the root, each submodule and each example, after
+  `tests/composition` for the root module, `tests/<name>` for each submodule, and
+  `tests/example-<name>` for each example that holds Terraform, which plans the whole example as a
+  caller would apply it. Each run block plans with a set of inputs and asserts what the plan holds:
+  the wiring between submodules, the settings that keep data private and encrypted, what each
+  example builds and what it leaves out, and that a wrong input is refused. The script refuses a run
+  block that does not plan and a test file that does not mock `aws`, takes every AWS credential away
+  from Terraform first, and refuses a submodule or an example without its test directory.
+- **`terraform validate`** of the root, each submodule and each example that holds Terraform, after
   `terraform init -backend=false`, and a check of the layout: the root holds only the composition,
-  and each submodule its own `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and README.
+  each submodule its own `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and README, and each
+  example a README and either a whole root module or nothing else: a shape the engine cannot run
+  safely yet is a README that says so, never Terraform.
 - **tflint** with the AWS ruleset, and **trivy config** at HIGH and CRITICAL. An accepted trivy
   finding is an inline ignore with its reason, listed in the README.
 - **`terraform fmt -check`** over every file, and **actionlint** over every workflow.

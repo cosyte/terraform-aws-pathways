@@ -1,0 +1,24 @@
+# One channel: read each result file the lab uploads over SFTP to its inbox, and write a copy to the
+# clinic's outbox, where the clinic picks it up over SFTP. Both are prefixes of the module's bucket:
+# the lab's SFTP home is partners/lab, so it uploads to /inbox, and the clinic's is partners/clinic,
+# so it sees the copies under /outbox.
+name: lab-results-in
+format: hl7v2
+
+source:
+  file:
+    dir: partners/lab/inbox
+    # A file younger than this may still be uploading, and is left for a later pass.
+    minAge: 5s
+    # Each pass lists the prefix: every 30 seconds keeps the list requests few.
+    pollInterval: 30s
+    s3:
+      # The module sets PATHWAYS_BUCKET to its bucket's name. The engine's task role may use the
+      # bucket, and the AWS SDK finds that role and the region on its own: no credential here.
+      bucket: { env: PATHWAYS_BUCKET }
+
+destinations:
+  - file:
+      dir: partners/clinic/outbox
+      s3:
+        bucket: { env: PATHWAYS_BUCKET }
