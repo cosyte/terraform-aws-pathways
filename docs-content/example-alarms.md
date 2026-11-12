@@ -2,7 +2,7 @@
 id: example-alarms
 title: The alarms example
 sidebar_label: alarms
-description: "The minimal deployment with the alarms on: a metrics collector beside the engine and four CloudWatch alarms to your SNS topic, with every file and what it costs to leave running."
+description: "The minimal deployment with the alarms on: a metrics collector beside the engine and four CloudWatch alarms, with every file and what it bills."
 ---
 
 # The alarms example

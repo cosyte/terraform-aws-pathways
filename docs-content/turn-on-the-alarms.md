@@ -2,7 +2,7 @@
 id: turn-on-the-alarms
 title: Turn on the alarms
 sidebar_label: Turn on the alarms
-description: "Alarm in CloudWatch on the engine's own metrics: a collector beside the engine reads /metrics with a token the module generates, and four alarms publish to your SNS topic."
+description: "Alarm in CloudWatch on the engine's own metrics: a collector beside the engine reads /metrics, and four alarms publish to your SNS topic."
 ---
 
 # Turn on the alarms
