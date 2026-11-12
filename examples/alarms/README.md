@@ -30,3 +30,13 @@ Every value in [`variables.tf`](variables.tf) is a placeholder. To use it:
    applies it.
 
 The docs site's page for this example lists what each part bills for each month.
+
+Not yet run against a live collector: the collector's configuration is checked by tests as data,
+and has not been run against a real collector and engine. On a first apply, in a test account,
+check that the four metrics reach CloudWatch under the `Pathways` namespace with only the
+`Deployment` dimension (if another dimension appears, the alarms watch an empty metric and the store
+down alarm fires continuously), and that the collector's task role has the permissions the exporter
+needs (watch the collector's lines in the engine's log group, stream prefix `metrics-collector`, for
+access denied). The collector is not restarted if it stops; start a new deployment of the service.
+Turning the alarms off and on again within seven days fails on the secret's fixed name until you
+restore it or delete it without its recovery window.

@@ -88,6 +88,21 @@ A missing minute counts for store down, so an engine or a collector that stopped
 it too. The engine leaves the oldest pending age out while it cannot read its database, which store
 down already covers, so a missing minute does not count there.
 
+## Before you rely on it
+
+The collector's configuration is checked by the module's tests as data. It has not yet been run
+against a live collector and engine. On the first apply, in a test account, check two things before
+you trust the alarms:
+
+- **The metrics arrive with one dimension.** In CloudWatch, under the `Pathways` namespace, each of
+  the four metrics must have only the `Deployment` dimension. If the exporter adds another (an
+  instrumentation library name, say), the alarms watch a metric that has no data, and the store down
+  alarm fires continuously, since a missing minute counts for it.
+- **The task role has what the exporter needs.** The module lets the task role create streams in the
+  metrics log group and write to it, and nothing else. If the exporter needs more, the collector's
+  own lines in the engine's log group (stream prefix `metrics-collector`) say access denied, and no
+  metric arrives.
+
 ## What it costs
 
 We give what bills, not prices: AWS sets those per region and changes them. Price each line in the
@@ -116,6 +131,29 @@ role's policy and the token's secret are deleted (the secret after Secrets Manag
 window), and the engine's task goes back to the engine alone. Take the `health:` block out of your
 `pathways.yaml` too, or give it a token of your own: without `PATHWAYS_HEALTH_TOKEN` the engine
 does not start.
+
+Turning alarms off and on again within seven days fails on the secret's name. The name is fixed,
+`pathways/<name>/health-token`, and the secret is still waiting out its recovery window, so Secrets
+Manager refuses to create it again. Either restore the secret and import it, or delete it for good
+and apply again:
+
+```sh
+# restore it, then terraform import it into the module's state
+aws secretsmanager restore-secret --secret-id pathways/<name>/health-token
+# or delete it now, skipping the recovery window
+aws secretsmanager delete-secret --secret-id pathways/<name>/health-token --force-delete-without-recovery
+```
+
+## If the collector stops
+
+The collector is not essential, so the engine runs on when it exits, but ECS does not restart a
+container that is not essential. With the collector gone no metric arrives: the store down alarm
+fires (a missing minute counts for it) and stays in alarm until the task is replaced. Start a new
+deployment of the service, which replaces the task with one that has both containers:
+
+```sh
+aws ecs update-service --cluster <cluster> --service <service> --force-new-deployment
+```
 
 ## Related
 
