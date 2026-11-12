@@ -1,19 +1,86 @@
+<a href="https://cosyte.com">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://cosyte.com/tile/cosyte-lockup-tile-on-dark-1200x300.png">
+    <img alt="The Cosyte logo on its own white ground: the icon beside the word Cosyte." src="https://cosyte.com/tile/cosyte-lockup-tile-on-light-1200x300.png">
+  </picture>
+</a>
+
 # terraform-aws-pathways
+
+> A Terraform module that runs Cosyte Pathways on AWS ECS Fargate.
+
+[![CI](https://img.shields.io/github/actions/workflow/status/cosyte/terraform-aws-pathways/ci.yml?branch=main&label=CI)](https://github.com/cosyte/terraform-aws-pathways/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/cosyte/terraform-aws-pathways/blob/main/LICENSE)
 
 A Terraform module that runs [Cosyte Pathways](https://github.com/cosyte/pathways), our open-source
 healthcare integration engine, on AWS ECS Fargate, with its database, its secrets, its key, its load
 balancers and its logs, and, when you ask for them, an S3 bucket and an SFTP server for file
 exchange. It deploys your project's own image, named by digest.
 
-**Status: not released yet.** The module is here and tested against mocked providers, but nothing is
+---
+
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Status](#status)
+- [What it creates](#what-it-creates)
+- [Usage](#usage)
+- [What your project needs](#what-your-project-needs)
+- [Deploy](#deploy)
+- [The database password](#the-database-password)
+- [Destroying it, and the final snapshot](#destroying-it-and-the-final-snapshot)
+- [Examples](#examples)
+- [What it costs each month](#what-it-costs-each-month)
+- [Layout](#layout)
+- [The bucket and SFTP, from the AWS documentation](#the-bucket-and-sftp-from-the-aws-documentation)
+- [Documentation](#documentation)
+- [Support](#support)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Why this exists
+
+Running Pathways in your account keeps messages in your account. On AWS that takes more than the
+engine: a database, its secrets, a key, load balancers, logs, and for file exchange a bucket and an
+SFTP server, each with settings that decide who can reach the data it holds. This module creates
+them together, with the defaults on the private side: the tasks in your private subnets with no
+public address, both load balancers internal, the database not publicly accessible and refusing any
+connection without TLS, and the database, its secret and the logs encrypted under a KMS key of the
+module's own. You give it your network and your project's image, named by digest; it runs the
+engine, and its outputs are what your CI needs to deploy the next image.
+
+---
+
+## Status
+
+**Not released yet.** The module is here and tested against mocked providers, but nothing is
 tagged or published to a registry, and it has not been applied to a real account by us yet. Read it,
 plan it, and tell us what you find.
 
-**Documentation:** [docs.cosyte.com/terraform-aws-pathways](https://docs.cosyte.com/terraform-aws-pathways/)
-holds a quickstart that deploys the smallest example, how-to guides for the network, the bucket,
-SFTP and upgrades, every input and output, and a page per example with what it costs to leave
-running. The site builds those pages from each release, so until the first release they are in
-[`docs-content/`](docs-content) here.
+### Not here yet
+
+- **Alarms.** CloudWatch alarms on the engine's own metrics, through a collector sidecar, come once
+  the engine publishes its metric names.
+- **A standby.** Pathways can run a second engine as a standby that takes over the lease. On ECS that
+  needs care: ECS replaces a task its load balancer reports unhealthy, and a standby is not ready by
+  design. It comes with its own tests.
+- **Several active engines, blue and green deploys, and promotion to a second region.** Each waits on
+  the engine; the examples folder names what each waits on. Backups in a second region, restored by
+  hand, are here today: [`examples/cross-region-backup`](examples/cross-region-backup).
+- **SFTP from the internet.** The SFTP endpoint is internal: partners reach it over your VPN or
+  another private link. An internet-facing endpoint needs Elastic IPs, which the module does not
+  create yet.
+- **A registry release.** No version is tagged or published yet. The
+  [Terraform Registry](https://developer.hashicorp.com/terraform/registry/modules/publish) (read
+  2026-11-11) publishes only a public GitHub repository named `terraform-<provider>-<name>`, which
+  this name fits, and takes release tags that are a semantic version, optionally prefixed with `v`.
+  The OpenTofu registry takes a module through its GitHub issue form; its naming and tag rules we
+  have not confirmed yet.
+
+---
 
 ## What it creates
 
@@ -92,77 +159,6 @@ module "pathways" {
 
 Every input is described in [`variables.tf`](variables.tf) and every output in
 [`outputs.tf`](outputs.tf).
-
-## Examples
-
-One folder per deployment shape under [`examples/`](examples), each a whole root module with the
-Pathways project it deploys in `project/`, and a README that says what it builds, when to choose
-it, what it costs and what it does not cover. CI validates each one and plans it against mocked
-providers (`tests/example-<name>`); nothing here applies them.
-
-| Example | The shape |
-| --- | --- |
-| [`minimal`](examples/minimal) | The smallest deployment: one engine, its database in one zone, one MLLP channel. For trying the module out. |
-| [`production`](examples/production) | One engine sized and protected for real traffic, the database's Multi-AZ standby, your own key for the database. |
-| [`complete`](examples/complete) | The engine and its database, the bucket, SFTP for one partner, and the channel that joins them. |
-| [`bring-your-own-vpc`](examples/bring-your-own-vpc) | A VPC and subnets found by their tags, the engine, the database and the load balancer each in its own tier. |
-| [`existing-database`](examples/existing-database) | A PostgreSQL database you already run, instead of the module's RDS instance. |
-| [`mllp-only`](examples/mllp-only) | Two MLLP feeds behind one network load balancer; no HTTP, bucket or SFTP. |
-| [`http-only`](examples/http-only) | One HTTPS source behind the application load balancer; no network load balancer. |
-| [`sftp-and-bucket`](examples/sftp-and-bucket) | Files only: two partners over SFTP into the bucket; no load balancer. |
-| [`private-only`](examples/private-only) | No public ingress and no NAT gateway: VPC endpoints for the AWS APIs. |
-| [`cross-region-backup`](examples/cross-region-backup) | The database's automated backups replicated to a second region, and a restore there step by step. |
-
-Three shapes wait on the engine. Their folders hold a README that says plainly they are not yet
-supported and what they wait on, and no Terraform, so nobody deploys a shape the engine cannot run
-safely: [`multiple-active-nodes`](examples/multiple-active-nodes) (several active engines on one
-database), [`blue-green`](examples/blue-green) (a deploy with a handover between two engines) and
-[`second-region-disaster-recovery`](examples/second-region-disaster-recovery) (a second region with
-promotion).
-
-## Layout
-
-The root module is the composition: its `main.tf` calls one submodule per concern and wires them
-together. Each submodule follows the registry's standard layout and can be used on its own, as its
-README shows, with `source = "github.com/cosyte/terraform-aws-pathways//modules/<name>"`.
-
-```text
-.
-├── main.tf                  the composition: calls each submodule
-├── variables.tf             the root's inputs
-├── outputs.tf               the root's outputs
-├── versions.tf              Terraform and provider constraints
-├── modules/
-│   ├── kms/                 the customer managed key, rotated yearly
-│   ├── logs/                the engine's and the migrate task's log groups
-│   ├── security_groups/     who may reach the load balancers, the engine and the database
-│   ├── database/            PostgreSQL on RDS and the secret holding its URL
-│   ├── iam/                 the task execution role and the task role
-│   ├── load_balancers/      the network load balancer (MLLP) and application load balancer (HTTP)
-│   ├── ecs/                 the cluster, the engine and migrate task definitions, the service
-│   ├── bucket/              optional: the S3 bucket, its access log bucket, the task role's access
-│   └── sftp/                optional: the Transfer Family SFTP server, its users and its logs
-├── examples/                one folder per deployment shape; see Examples above
-│   ├── minimal/             the smallest deployment: the engine, its database, one MLLP channel
-│   ├── complete/            the engine, its database, the bucket, SFTP and one channel
-│   └── <shape>/             production, existing-database, private-only and the rest
-├── docs-content/            the docs.cosyte.com pages, released as docs-content.tar.gz
-├── tests/
-│   ├── composition/         the root: the wiring between the submodules, its outputs and inputs
-│   ├── <name>/              one per submodule (kms, logs, ...), each tested on its own
-│   └── example-<name>/      one per example with Terraform, planned whole
-└── scripts/
-    ├── check-no-emdash.sh   no em or en dash in any tracked file
-    ├── docs.sh              the generated docs pages match the code; every example has a page
-    ├── pack-docs.sh         the release's docs-content.tar.gz and source.tar.gz
-    ├── validate.sh          the layout, then terraform validate in every directory
-    ├── policy.sh            tflint and trivy
-    └── test.sh              terraform test per subject, mocked providers, plan only
-```
-
-Each submodule directory holds `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a
-`README.md`. The tests plan against mocked providers only: none needs an AWS account or creates
-anything.
 
 ## What your project needs
 
@@ -285,6 +281,105 @@ under one key it scopes to this deployment; the longest window AWS allows is the
 reason. The snapshot's name is fixed, so a second destroy of a module with the same `name` fails
 while the first snapshot exists: copy it to a new name, or delete it, first.
 
+## Examples
+
+One folder per deployment shape under [`examples/`](examples), each a whole root module with the
+Pathways project it deploys in `project/`, and a README that says what it builds, when to choose
+it, what it costs and what it does not cover. CI validates each one and plans it against mocked
+providers (`tests/example-<name>`); nothing here applies them.
+
+| Example | The shape |
+| --- | --- |
+| [`minimal`](examples/minimal) | The smallest deployment: one engine, its database in one zone, one MLLP channel. For trying the module out. |
+| [`production`](examples/production) | One engine sized and protected for real traffic, the database's Multi-AZ standby, your own key for the database. |
+| [`complete`](examples/complete) | The engine and its database, the bucket, SFTP for one partner, and the channel that joins them. |
+| [`bring-your-own-vpc`](examples/bring-your-own-vpc) | A VPC and subnets found by their tags, the engine, the database and the load balancer each in its own tier. |
+| [`existing-database`](examples/existing-database) | A PostgreSQL database you already run, instead of the module's RDS instance. |
+| [`mllp-only`](examples/mllp-only) | Two MLLP feeds behind one network load balancer; no HTTP, bucket or SFTP. |
+| [`http-only`](examples/http-only) | One HTTPS source behind the application load balancer; no network load balancer. |
+| [`sftp-and-bucket`](examples/sftp-and-bucket) | Files only: two partners over SFTP into the bucket; no load balancer. |
+| [`private-only`](examples/private-only) | No public ingress and no NAT gateway: VPC endpoints for the AWS APIs. |
+| [`cross-region-backup`](examples/cross-region-backup) | The database's automated backups replicated to a second region, and a restore there step by step. |
+
+Three shapes wait on the engine. Their folders hold a README that says plainly they are not yet
+supported and what they wait on, and no Terraform, so nobody deploys a shape the engine cannot run
+safely: [`multiple-active-nodes`](examples/multiple-active-nodes) (several active engines on one
+database), [`blue-green`](examples/blue-green) (a deploy with a handover between two engines) and
+[`second-region-disaster-recovery`](examples/second-region-disaster-recovery) (a second region with
+promotion).
+
+## What it costs each month
+
+We give the drivers, not prices: AWS sets those per region and changes them. Check each against the
+[AWS Pricing Calculator](https://calculator.aws/) for your region.
+
+- **The engine**: Fargate bills each task's vCPU and memory per second it runs (`cpu`, `memory`). One
+  engine runs all month, and the migrate task for a few minutes a deploy.
+- **The database**: RDS bills the instance class per hour (`database_instance_class`), twice over with
+  `database_multi_az`, the storage allocated per GB-month (up to `database_max_allocated_storage`),
+  and backups beyond the database's own size.
+- **The load balancers**: each bills per hour it exists and per load balancer capacity unit, which
+  grows with new connections, active connections and bytes. Each exists only with a source of its
+  kind.
+- **NAT and data transfer**: tasks in private subnets reach AWS APIs through your NAT gateway, which
+  bills per hour and per GB processed, unless you add VPC endpoints (which bill per hour and per GB
+  too). Data leaving AWS bills per GB.
+- **Secrets, the key and the logs**: Secrets Manager per secret per month and per 10,000 calls; KMS per
+  key per month and per request; CloudWatch Logs per GB ingested and per GB-month stored, under
+  `log_retention_days`.
+- **The bucket**, with `bucket_enabled`: S3 bills per GB-month stored, noncurrent versions included
+  until `bucket_lifecycle_rules` removes them, and per request. A file source lists its prefix every
+  `pollInterval`, so the list requests run all month even when no file arrives. The access logs are
+  objects in the log bucket, billed the same way. The Bucket Key keeps KMS requests low.
+- **SFTP**, with `sftp_enabled`: Transfer Family bills per hour for each protocol enabled on a server,
+  from creation until deletion, whether or not anyone connects, and per GB uploaded and downloaded.
+  That hourly charge is often the largest line for a small deployment: turn SFTP off when no
+  partner needs it.
+
+## Layout
+
+The root module is the composition: its `main.tf` calls one submodule per concern and wires them
+together. Each submodule follows the registry's standard layout and can be used on its own, as its
+README shows, with `source = "github.com/cosyte/terraform-aws-pathways//modules/<name>"`.
+
+```text
+.
+├── main.tf                  the composition: calls each submodule
+├── variables.tf             the root's inputs
+├── outputs.tf               the root's outputs
+├── versions.tf              Terraform and provider constraints
+├── modules/
+│   ├── kms/                 the customer managed key, rotated yearly
+│   ├── logs/                the engine's and the migrate task's log groups
+│   ├── security_groups/     who may reach the load balancers, the engine and the database
+│   ├── database/            PostgreSQL on RDS and the secret holding its URL
+│   ├── iam/                 the task execution role and the task role
+│   ├── load_balancers/      the network load balancer (MLLP) and application load balancer (HTTP)
+│   ├── ecs/                 the cluster, the engine and migrate task definitions, the service
+│   ├── bucket/              optional: the S3 bucket, its access log bucket, the task role's access
+│   └── sftp/                optional: the Transfer Family SFTP server, its users and its logs
+├── examples/                one folder per deployment shape; see Examples above
+│   ├── minimal/             the smallest deployment: the engine, its database, one MLLP channel
+│   ├── complete/            the engine, its database, the bucket, SFTP and one channel
+│   └── <shape>/             production, existing-database, private-only and the rest
+├── docs-content/            the docs.cosyte.com pages, released as docs-content.tar.gz
+├── tests/
+│   ├── composition/         the root: the wiring between the submodules, its outputs and inputs
+│   ├── <name>/              one per submodule (kms, logs, ...), each tested on its own
+│   └── example-<name>/      one per example with Terraform, planned whole
+└── scripts/
+    ├── check-no-emdash.sh   no em or en dash in any tracked file
+    ├── docs.sh              the generated docs pages match the code; every example has a page
+    ├── pack-docs.sh         the release's docs-content.tar.gz and source.tar.gz
+    ├── validate.sh          the layout, then terraform validate in every directory
+    ├── policy.sh            tflint and trivy
+    └── test.sh              terraform test per subject, mocked providers, plan only
+```
+
+Each submodule directory holds `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a
+`README.md`. The tests plan against mocked providers only: none needs an AWS account or creates
+anything.
+
 ## The bucket and SFTP, from the AWS documentation
 
 What the `bucket` and `sftp` submodules do rests on these pages:
@@ -322,55 +417,71 @@ What the `bucket` and `sftp` submodules do rests on these pages:
   and the security policies that set the SSH algorithms
   ([Security policies for AWS Transfer Family servers](https://docs.aws.amazon.com/transfer/latest/userguide/security-policies.html)).
 
-## What it costs each month
+---
 
-We give the drivers, not prices: AWS sets those per region and changes them. Check each against the
-[AWS Pricing Calculator](https://calculator.aws/) for your region.
+## Documentation
 
-- **The engine**: Fargate bills each task's vCPU and memory per second it runs (`cpu`, `memory`). One
-  engine runs all month, and the migrate task for a few minutes a deploy.
-- **The database**: RDS bills the instance class per hour (`database_instance_class`), twice over with
-  `database_multi_az`, the storage allocated per GB-month (up to `database_max_allocated_storage`),
-  and backups beyond the database's own size.
-- **The load balancers**: each bills per hour it exists and per load balancer capacity unit, which
-  grows with new connections, active connections and bytes. Each exists only with a source of its
-  kind.
-- **NAT and data transfer**: tasks in private subnets reach AWS APIs through your NAT gateway, which
-  bills per hour and per GB processed, unless you add VPC endpoints (which bill per hour and per GB
-  too). Data leaving AWS bills per GB.
-- **Secrets, the key and the logs**: Secrets Manager per secret per month and per 10,000 calls; KMS per
-  key per month and per request; CloudWatch Logs per GB ingested and per GB-month stored, under
-  `log_retention_days`.
-- **The bucket**, with `bucket_enabled`: S3 bills per GB-month stored, noncurrent versions included
-  until `bucket_lifecycle_rules` removes them, and per request. A file source lists its prefix every
-  `pollInterval`, so the list requests run all month even when no file arrives. The access logs are
-  objects in the log bucket, billed the same way. The Bucket Key keeps KMS requests low.
-- **SFTP**, with `sftp_enabled`: Transfer Family bills per hour for each protocol enabled on a server,
-  from creation until deletion, whether or not anyone connects, and per GB uploaded and downloaded.
-  That hourly charge is often the largest line for a small deployment: turn SFTP off when no
-  partner needs it.
+The documentation at [docs.cosyte.com/terraform-aws-pathways](https://docs.cosyte.com/terraform-aws-pathways/)
+holds a quickstart that deploys the smallest example, how-to guides for the network, the bucket,
+SFTP and upgrades, every input and output, and a page per example with what it costs to leave
+running. The site builds those pages from each release, so until the first release they are in
+[`docs-content/`](docs-content) here.
 
-## Not here yet
+- [Installation](docs-content/installation.md): what you need before you plan the module.
+- [Quickstart](docs-content/quickstart.md): deploy the smallest example into a VPC of your own,
+  check it is healthy, then take it down.
+- The how-to guides: [place it in your network](docs-content/place-it-in-your-network.md),
+  [turn on the S3 bucket](docs-content/turn-on-the-bucket.md),
+  [give partners SFTP](docs-content/give-partners-sftp.md),
+  [upgrade Pathways and the module](docs-content/upgrade.md) and
+  [destroy a deployment](docs-content/destroy-a-deployment.md).
+- [Deployment shapes](docs-content/deployment-shapes.md): how the pieces fit together, and what
+  drives each shape's monthly bill.
+- [Inputs and outputs](docs-content/inputs-and-outputs.md): every input and output of the root
+  module, generated from `variables.tf` and `outputs.tf`, with a page for each submodule and each
+  example beside it.
+- [Troubleshooting](docs-content/troubleshooting.md),
+  [Testing and quality](docs-content/testing-and-quality.md) and
+  [Performance](docs-content/performance.md).
 
-- **Alarms.** CloudWatch alarms on the engine's own metrics, through a collector sidecar, come once
-  the engine publishes its metric names.
-- **A standby.** Pathways can run a second engine as a standby that takes over the lease. On ECS that
-  needs care: ECS replaces a task its load balancer reports unhealthy, and a standby is not ready by
-  design. It comes with its own tests.
-- **Several active engines, blue and green deploys, and promotion to a second region.** Each waits on
-  the engine; the examples folder names what each waits on. Backups in a second region, restored by
-  hand, are here today: [`examples/cross-region-backup`](examples/cross-region-backup).
-- **SFTP from the internet.** The SFTP endpoint is internal: partners reach it over your VPN or
-  another private link. An internet-facing endpoint needs Elastic IPs, which the module does not
-  create yet.
-- **A registry release.** No version is tagged or published yet. The
-  [Terraform Registry](https://developer.hashicorp.com/terraform/registry/modules/publish) (read
-  2026-11-11) publishes only a public GitHub repository named `terraform-<provider>-<name>`, which
-  this name fits, and takes release tags that are a semantic version, optionally prefixed with `v`.
-  The OpenTofu registry takes a module through its GitHub issue form; its naming and tag rules we
-  have not confirmed yet.
+---
 
-## Security scanning
+## Support
+
+Questions, bug reports and what you find when you plan the module go on the
+[issue tracker](https://github.com/cosyte/terraform-aws-pathways/issues).
+
+---
+
+## Security
+
+Report a vulnerability privately, as the
+[security policy](https://github.com/cosyte/.github/blob/main/SECURITY.md) describes, never in a
+public issue.
+
+### PHI and safety
+
+This module creates infrastructure that carries PHI. You apply it in your own cloud account to run an
+engine that moves messages holding patient data, so a wrong default (a public endpoint, an
+unencrypted volume, a broad role, logs that carry message bodies) would expose that data in your
+account, perhaps without anyone noticing. What the module does about it is set out above, in
+[What it creates](#what-it-creates): the engine's logs hold ids, counts and codes and never a
+message's content, that section names every other log the module writes and what each holds, and
+the database password never enters the plan or the state.
+
+Nothing in this repository applies to a real account: the tests plan against mocked providers only,
+and every value in a file is synthetic, with no secret, real account id or hostname of a real
+deployment. Never attach a real patient's message, a log from a live system, or your own account ids
+or hostnames to an issue.
+
+Running Pathways in your account keeps messages in your account. We sign Business Associate
+Agreements. Your deployment also needs your own Business Associate Addendum with AWS, which AWS
+offers through AWS Artifact, and it covers only the services AWS lists as eligible: check that list
+for each service the module uses (ECS on Fargate, RDS, S3, Transfer Family, KMS, Secrets Manager,
+CloudWatch Logs, Elastic Load Balancing). A module cannot make a deployment compliant on its own:
+what you run on it, who can reach it and how you operate it are yours to decide.
+
+### Security scanning
 
 `scripts/policy.sh` runs tflint with the AWS ruleset and `trivy config` at HIGH and CRITICAL. Two
 findings are accepted, inline where they fire:
@@ -380,15 +491,34 @@ findings are accepted, inline where they fire:
 | `AVD-AWS-0104` (egress to any address) | `modules/security_groups/main.tf`, `aws_vpc_security_group_egress_rule.engine` | The default `egress_rules` allow HTTPS anywhere, which a task needs to reach the image registry, Secrets Manager and CloudWatch Logs through a NAT gateway. With VPC endpoints for those, narrow `egress_rules`. |
 | tflint `terraform_unused_required_providers` | `versions.tf`, `aws` and `random` | The root holds no resource of its own; its submodules inherit these providers from it. The root keeps the declarations because they are the constraints a caller reads, and because `terraform test` hands a mocked provider only to a root module that requires it. |
 
-## Compliance
+---
 
-Running Pathways in your account keeps messages in your account. We sign Business Associate
-Agreements. Your deployment also needs your own Business Associate Addendum with AWS, which AWS
-offers through AWS Artifact, and it covers only the services AWS lists as eligible: check that list
-for each service the module uses (ECS on Fargate, RDS, S3, Transfer Family, KMS, Secrets Manager,
-CloudWatch Logs, Elastic Load Balancing). A module cannot make a deployment compliant on its own:
-what you run on it, who can reach it and how you operate it are yours to decide.
+## Contributing
+
+Pull requests are welcome. Each concern is a submodule under `modules/` with its own
+`tests/<name>` directory, called from the root's `main.tf`, and `scripts/validate.sh` and
+`scripts/test.sh` refuse a layout that breaks that rule. A changed input is a regenerated page in
+`docs-content/` (`scripts/docs.sh`), committed with it, and a new example is a new page. Every value
+in a file is synthetic. Run the gate from the repo root, in this order, on the versions `mise.toml`
+pins:
+
+```sh
+mise exec terraform -- terraform fmt -check -recursive
+scripts/check-no-emdash.sh
+mise exec terraform-docs -- scripts/docs.sh
+mise exec terraform -- scripts/validate.sh
+mise exec trivy -- scripts/policy.sh
+mise exec actionlint -- actionlint
+mise exec terraform -- scripts/test.sh
+```
+
+CI runs the same checks on every pull request, each its own job in `.github/workflows/ci.yml`.
+[CLAUDE.md](CLAUDE.md) says what each command checks. The organization's
+[contributing guide](https://github.com/cosyte/.github/blob/main/CONTRIBUTING.md) and
+[code of conduct](https://github.com/cosyte/.github/blob/main/CODE_OF_CONDUCT.md) apply here.
+
+---
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT, Copyright (c) 2026 Cosyte LLC. See [LICENSE](LICENSE).
