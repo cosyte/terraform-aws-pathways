@@ -9,6 +9,12 @@ exchange. It deploys your project's own image, named by digest.
 tagged or published to a registry, and it has not been applied to a real account by us yet. Read it,
 plan it, and tell us what you find.
 
+**Documentation:** [docs.cosyte.com/terraform-aws-pathways](https://docs.cosyte.com/terraform-aws-pathways/)
+holds a quickstart that deploys the smallest example, how-to guides for the network, the bucket,
+SFTP and upgrades, every input and output, and a page per example with what it costs to leave
+running. The site builds those pages from each release, so until the first release they are in
+[`docs-content/`](docs-content) here.
+
 ## What it creates
 
 - **The engine**: an ECS cluster, a Fargate task definition and a service that runs one engine
@@ -80,7 +86,8 @@ module "pathways" {
 }
 ```
 
-[`examples/complete`](examples/complete) stands the whole thing up as a root module: the engine and
+[`examples/minimal`](examples/minimal) is the smallest deployment: the engine, its database and one
+MLLP channel. [`examples/complete`](examples/complete) stands the whole thing up as a root module: the engine and
 its database, the bucket, SFTP for one partner, and the one channel that joins them, with the
 project it deploys in `examples/complete/project`. Every input is
 described in [`variables.tf`](variables.tf) and every output in [`outputs.tf`](outputs.tf).
@@ -108,12 +115,16 @@ README shows, with `source = "github.com/cosyte/terraform-aws-pathways//modules/
 │   ├── bucket/              optional: the S3 bucket, its access log bucket, the task role's access
 │   └── sftp/                optional: the Transfer Family SFTP server, its users and its logs
 ├── examples/
+│   ├── minimal/             the smallest deployment: the engine, its database, one MLLP channel
 │   └── complete/            a whole root module that calls this one, and the project it deploys
+├── docs-content/            the docs.cosyte.com pages, released as docs-content.tar.gz
 ├── tests/
 │   ├── composition/         the root: the wiring between the submodules, its outputs and inputs
 │   └── <name>/              one per submodule (kms, logs, ...), each tested on its own
 └── scripts/
     ├── check-no-emdash.sh   no em or en dash in any tracked file
+    ├── docs.sh              the generated docs pages match the code; every example has a page
+    ├── pack-docs.sh         the release's docs-content.tar.gz and source.tar.gz
     ├── validate.sh          the layout, then terraform validate in every directory
     ├── policy.sh            tflint and trivy
     └── test.sh              terraform test per subject, mocked providers, plan only

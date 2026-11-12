@@ -8,7 +8,10 @@ layout for a module with nested submodules:
 - `modules/<name>/` holds one concern each (`kms`, `logs`, `security_groups`, `database`, `iam`,
   `load_balancers`, `ecs`, and the optional `bucket` and `sftp`, off by default), with its own `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a
   short `README.md`, and each can be used on its own;
-- `examples/` holds whole root modules that call it;
+- `examples/` holds whole root modules that call it, each with its page in `docs-content/`;
+- `docs-content/` holds the docs.cosyte.com pages, after config's docs-content standard: the
+  reference pages and each example page's Files section are generated (`scripts/docs.sh`), the rest
+  is written by hand. A tag `vX.Y.Z` releases them (`.github/workflows/release.yml`);
 - `tests/<subject>/` holds the `terraform test` files: `tests/composition` for the root, and
   `tests/<name>` for each submodule;
 - `scripts/` holds every command of the gate.
@@ -26,6 +29,7 @@ needs, so mise installs only that one: mise's own install of tflint fails its at
 ```sh
 mise exec terraform -- terraform fmt -check -recursive
 scripts/check-no-emdash.sh
+mise exec terraform-docs -- scripts/docs.sh
 mise exec terraform -- scripts/validate.sh
 mise exec trivy -- scripts/policy.sh
 mise exec actionlint -- actionlint
@@ -34,6 +38,11 @@ mise exec terraform -- scripts/test.sh
 
 - `scripts/validate.sh`: checks the layout above, then `terraform init -backend=false` and
   `terraform validate` in the root, in each `modules/` directory and in each `examples/` directory.
+- `scripts/docs.sh`: regenerates the reference pages of `docs-content/` (every input and output of
+  the root and of each submodule, read by terraform-docs) and the Files section of each example's
+  page, then fails if that changed a file. It also fails when a folder under `examples/` has no page
+  `docs-content/example-<name>.md`, or a page is missing from `docs-content/sidebars.json`. A new
+  example is a new page; a changed input is a regenerated page, committed with it.
 - `scripts/policy.sh`: tflint with the AWS ruleset (`.tflint.hcl`), then `trivy config` at HIGH and
   CRITICAL. An accepted trivy finding is an inline `#trivy:ignore:<ID>` with its reason, listed in the
   README.
@@ -42,7 +51,7 @@ mise exec terraform -- scripts/test.sh
   plan, and a submodule without its test directory.
 
 CI runs the same checks on every pull request, each its own job in `.github/workflows/ci.yml`
-(`fmt`, `validate`, `tf-test`, `tf-policy`, `actionlint`), with `no-emdash` (the tracked files and
+(`fmt`, `docs`, `validate`, `tf-test`, `tf-policy`, `actionlint`), with `no-emdash` (the tracked files and
 the pull request's title, body and commits) and `pr-title / conventional-commits` beside them. A
 session never runs `terraform plan` or `apply` against an account: no credentials exist here.
 

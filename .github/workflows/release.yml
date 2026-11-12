@@ -1,0 +1,138 @@
+# Cuts a release from a version tag, the way our libraries' releases end: the docs artifacts, a
+# GitHub release carrying them, then a dispatch that rebuilds docs.cosyte.com. There is no package
+# to publish; the module is consumed from its git tag.
+#
+# To release: move the "Unreleased" heading of CHANGELOG.md to the version ("## 0.1.1"), merge that
+# to main, then push the tag v0.1.1 on that commit. This workflow then:
+#
+#   1. checks the tag is vMAJOR.MINOR.PATCH, on main, with a CHANGELOG.md section of its version;
+#   2. runs the docs check, validate and the tests on the tagged commit, the same scripts CI runs;
+#   3. fills the "Current numbers" sections of the two quality pages from that test run
+#      (scripts/release_numbers.py), in the working tree only;
+#   4. builds docs-content.tar.gz and source.tar.gz (scripts/pack-docs.sh);
+#   5. creates the GitHub release for the tag, with the changelog section as its notes and both
+#      archives attached;
+#   6. sends docs.cosyte.com its package-released dispatch, with DOCS_REPO_DISPATCH_TOKEN, when that
+#      secret is set. A dispatch sent with the job's own token would start no workflow there.
+#
+# No step reads an AWS credential, and nothing plans against or applies to an account.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the GitHub release and attach its archives
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The tag is a version on main, with its changelog section
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::${TAG} is not vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          version="${TAG#v}"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${TAG} is not on main"
+            exit 1
+          fi
+          awk -v heading="## ${version}" '
+            $0 == heading { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > "${RUNNER_TEMP}/notes.md"
+          if ! grep -q '[^[:space:]]' "${RUNNER_TEMP}/notes.md"; then
+            echo "::error::CHANGELOG.md has no section '## ${version}' with entries"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Read the pinned versions
+        id: pins
+        run: |
+          echo "terraform=$(awk -F'"' '/^terraform[[:space:]]*=/ {print $(NF-1)}' mise.toml)" >> "$GITHUB_OUTPUT"
+          echo "terraform_docs=$(awk -F'"' '/^terraform-docs[[:space:]]*=/ {print $(NF-1)}' mise.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: ${{ steps.pins.outputs.terraform }}
+          terraform_wrapper: false
+
+      - name: Install terraform-docs at the version pinned in mise.toml
+        env:
+          V: ${{ steps.pins.outputs.terraform_docs }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/terraform-docs/terraform-docs/releases/download/v${V}"
+          tarball="terraform-docs-v${V}-linux-amd64.tar.gz"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/${tarball}" "${base}/${tarball}"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/sums.txt" "${base}/terraform-docs-v${V}.sha256sum"
+          ( cd "${RUNNER_TEMP}" && grep " ${tarball}\$" sums.txt | sha256sum -c - )
+          mkdir -p "${RUNNER_TEMP}/bin"
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/bin" terraform-docs
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+
+      - name: The docs match the code
+        run: scripts/docs.sh
+
+      - name: validate
+        run: scripts/validate.sh
+
+      - name: terraform test, mocked providers, plan only
+        run: |
+          set -euo pipefail
+          scripts/test.sh 2>&1 | tee "${RUNNER_TEMP}/test.log"
+
+      - name: Fill in the quality pages' current numbers
+        env:
+          TERRAFORM: ${{ steps.pins.outputs.terraform }}
+        run: |
+          python3 scripts/release_numbers.py --test-log "${RUNNER_TEMP}/test.log" \
+            --commit "$GITHUB_SHA" --terraform "$TERRAFORM" --runner ubuntu-latest
+
+      - name: Build docs-content.tar.gz and source.tar.gz
+        run: scripts/pack-docs.sh "${RUNNER_TEMP}/dist-artifacts"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "${RUNNER_TEMP}/notes.md" \
+            "${RUNNER_TEMP}/dist-artifacts/docs-content.tar.gz" "${RUNNER_TEMP}/dist-artifacts/source.tar.gz"
+
+      - name: Tell docs.cosyte.com
+        env:
+          DISPATCH_TOKEN: ${{ secrets.DOCS_REPO_DISPATCH_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DISPATCH_TOKEN" ]; then
+            echo "::notice::DOCS_REPO_DISPATCH_TOKEN is not set: the docs site picks this release up on its next build."
+            exit 0
+          fi
+          printf '{"event_type":"package-released","client_payload":{"package":"terraform-aws-pathways","version":"%s"}}' "$VERSION" \
+            | GH_TOKEN="$DISPATCH_TOKEN" gh api --method POST repos/cosyte/docs/dispatches --input -
