@@ -703,3 +703,178 @@ run "database_key_that_is_not_a_kms_key_arn_is_refused" {
 
   expect_failures = [var.database_kms_key_arn]
 }
+
+# ---------------------------------------------------------------------------
+# Alarms on the engine's metrics, off by default
+# ---------------------------------------------------------------------------
+
+run "alarms_off_by_default_add_nothing" {
+  command = plan
+
+  assert {
+    condition     = length(module.alarms) == 0
+    error_message = "Alarms are off by default: no secret, no log group, no role policy and no alarm."
+  }
+
+  assert {
+    condition     = module.ecs.engine_task_container_definitions == jsonencode([module.ecs.engine_container])
+    error_message = "With alarms off the engine's task definition holds the engine container alone, as before."
+  }
+
+  assert {
+    condition     = [for s in module.ecs.engine_container.secrets : s.name] == ["PATHWAYS_DATABASE_URL"]
+    error_message = "With alarms off the engine gets no health token."
+  }
+
+  assert {
+    condition     = output.alarm_arns == null && output.metrics_log_group_name == null && output.health_token_secret_arn == null
+    error_message = "With alarms off their outputs are null."
+  }
+}
+
+run "alarms_off_ignore_their_other_inputs" {
+  command = plan
+
+  variables {
+    alarms_enabled                    = false
+    alarms_sns_topic_arn              = "arn:aws:sns:us-east-1:123456789012:pathways-test-alarms"
+    alarms_collector_image            = "public.ecr.aws/example/collector:1@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    alarms_health_port                = 9091
+    alarms_oldest_pending_age_seconds = 60
+    alarms_refused_messages_threshold = 5
+    alarms_settled_failed_threshold   = 5
+    alarms_store_down_minutes         = 5
+    alarms_health_token_version       = 2
+  }
+
+  assert {
+    condition     = length(module.alarms) == 0
+    error_message = "alarms_enabled = false creates nothing, whatever the other alarm inputs say."
+  }
+
+  assert {
+    condition     = module.ecs.engine_task_container_definitions == jsonencode([module.ecs.engine_container])
+    error_message = "alarms_enabled = false adds no container."
+  }
+}
+
+run "alarms_read_the_metrics_through_a_collector_beside_the_engine" {
+  command = plan
+
+  variables {
+    alarms_enabled         = true
+    alarms_sns_topic_arn   = "arn:aws:sns:us-east-1:123456789012:pathways-test-alarms"
+    alarms_collector_image = "public.ecr.aws/example/collector:1@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  }
+
+  assert {
+    condition     = length(module.alarms) == 1
+    error_message = "alarms_enabled creates the alarms submodule."
+  }
+
+  assert {
+    condition     = [for c in jsondecode(module.ecs.engine_task_container_definitions) : c.name] == ["engine", "metrics-collector"]
+    error_message = "The engine's task runs the collector beside the engine."
+  }
+
+  assert {
+    condition = (
+      module.ecs.metrics_collector_container.image == var.alarms_collector_image
+      && module.ecs.metrics_collector_container.essential == false
+    )
+    error_message = "The collector runs the image given, by digest, and is not essential: the engine runs on if it stops."
+  }
+
+  assert {
+    condition = (
+      contains(module.ecs.engine_container.secrets, { name = "PATHWAYS_HEALTH_TOKEN", valueFrom = module.alarms[0].health_token_secret_arn })
+      && module.ecs.metrics_collector_container.secrets == [{ name = "PATHWAYS_HEALTH_TOKEN", valueFrom = module.alarms[0].health_token_secret_arn }]
+    )
+    error_message = "The engine and the collector read the same health token from the module's secret."
+  }
+
+  assert {
+    condition     = !contains([for s in module.ecs.migrate_container.secrets : s.name], "PATHWAYS_HEALTH_TOKEN")
+    error_message = "The migrate task serves no health endpoint and gets no health token."
+  }
+
+  assert {
+    condition     = toset([for p in module.ecs.engine_container.portMappings : p.containerPort]) == toset([2575, 9091])
+    error_message = "The health port is read over the task's loopback and is not mapped: nothing outside the task reaches it."
+  }
+
+  assert {
+    condition     = yamldecode(module.alarms[0].collector_config).receivers.prometheus.config.scrape_configs[0].static_configs[0].targets == ["127.0.0.1:9090"]
+    error_message = "The collector scrapes the health port, 9090 by default, over the task's loopback."
+  }
+
+  assert {
+    condition     = keys(output.alarm_arns) == ["oldest_pending_age", "refused_messages", "settled_failed", "store_down"]
+    error_message = "The four alarms: store down, oldest pending age, refused messages and settled destinations failing."
+  }
+
+  assert {
+    condition     = output.metrics_log_group_name == "/pathways/test/metrics" && output.health_token_secret_arn == module.alarms[0].health_token_secret_arn
+    error_message = "The metrics log group is under the deployment's prefix, and the token's secret is named by its ARN."
+  }
+}
+
+run "alarms_without_a_topic_are_refused" {
+  command = plan
+
+  variables {
+    alarms_enabled         = true
+    alarms_collector_image = "public.ecr.aws/example/collector:1@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  }
+
+  expect_failures = [var.alarms_sns_topic_arn]
+}
+
+run "alarms_without_a_collector_image_are_refused" {
+  command = plan
+
+  variables {
+    alarms_enabled       = true
+    alarms_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:pathways-test-alarms"
+  }
+
+  expect_failures = [var.alarms_collector_image]
+}
+
+run "collector_image_by_tag_alone_is_refused" {
+  command = plan
+
+  variables {
+    alarms_enabled         = true
+    alarms_sns_topic_arn   = "arn:aws:sns:us-east-1:123456789012:pathways-test-alarms"
+    alarms_collector_image = "public.ecr.aws/example/collector:latest"
+  }
+
+  expect_failures = [var.alarms_collector_image]
+}
+
+run "health_port_shared_with_the_probe_is_refused" {
+  command = plan
+
+  variables {
+    alarms_enabled         = true
+    alarms_sns_topic_arn   = "arn:aws:sns:us-east-1:123456789012:pathways-test-alarms"
+    alarms_collector_image = "public.ecr.aws/example/collector:1@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    alarms_health_port     = 9091
+  }
+
+  expect_failures = [var.alarms_health_port]
+}
+
+run "health_token_from_caller_is_refused_with_alarms_on" {
+  command = plan
+
+  variables {
+    alarms_enabled         = true
+    alarms_sns_topic_arn   = "arn:aws:sns:us-east-1:123456789012:pathways-test-alarms"
+    alarms_collector_image = "public.ecr.aws/example/collector:1@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    secrets                = { PATHWAYS_HEALTH_TOKEN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:test/health-token-AbCdEf" }
+  }
+
+  expect_failures = [var.alarms_enabled]
+}

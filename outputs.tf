@@ -40,7 +40,7 @@ output "engine_security_group_id" {
 }
 
 output "task_role_name" {
-  description = "Name of the role the engine and migrate tasks run as. It has no permissions but the bucket's, when bucket_enabled is true: attach a policy for an extension that calls AWS."
+  description = "Name of the role the engine and migrate tasks run as. It has no permissions but the bucket's, when bucket_enabled is true, and the metrics log group's, when alarms_enabled is true: attach a policy for an extension that calls AWS."
   value       = module.iam.task_role_name
 }
 
@@ -147,4 +147,19 @@ output "sftp_security_group_id" {
 output "sftp_log_group_name" {
   description = "Name of the SFTP server's CloudWatch log group, or null."
   value       = var.sftp_enabled ? module.sftp[0].log_group_name : null
+}
+
+output "alarm_arns" {
+  description = "ARNs of the four alarms, by key (store_down, oldest_pending_age, refused_messages, settled_failed), or null when alarms_enabled is false."
+  value       = var.alarms_enabled ? module.alarms[0].alarm_arns : null
+}
+
+output "metrics_log_group_name" {
+  description = "Name of the log group the metrics collector writes the four metrics to, or null when alarms_enabled is false."
+  value       = var.alarms_enabled ? module.alarms[0].metrics_log_group_name : null
+}
+
+output "health_token_secret_arn" {
+  description = "ARN of the Secrets Manager secret holding the health endpoint's bearer token, which the engine and the collector read as PATHWAYS_HEALTH_TOKEN, or null when alarms_enabled is false. The token itself is in no output, no plan and no state."
+  value       = var.alarms_enabled ? module.alarms[0].health_token_secret_arn : null
 }

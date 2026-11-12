@@ -10,6 +10,7 @@
         "place-it-in-your-network",
         "turn-on-the-bucket",
         "give-partners-sftp",
+        "turn-on-the-alarms",
         "upgrade",
         "destroy-a-deployment"
       ]
@@ -34,6 +35,7 @@
             "example-sftp-and-bucket",
             "example-private-only",
             "example-cross-region-backup",
+            "example-alarms",
             "example-multiple-active-nodes",
             "example-blue-green",
             "example-second-region-disaster-recovery"
@@ -51,7 +53,8 @@
             "module-load-balancers",
             "module-ecs",
             "module-bucket",
-            "module-sftp"
+            "module-sftp",
+            "module-alarms"
           ]
         }
       ]

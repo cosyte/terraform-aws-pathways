@@ -478,6 +478,78 @@ Type: `string`
 
 Default: `"TransferSecurityPolicy-2024-01"`
 
+### alarms_enabled
+
+Whether to alarm on the engine's own metrics (modules/alarms): a collector beside the engine in its task reads /metrics on the health endpoint with a token the module generates, keeps four metrics with no channel or destination name, writes them to CloudWatch, and four CloudWatch alarms publish to alarms_sns_topic_arn. Your pathways.yaml needs a health block on alarms_health_port. CloudWatch bills for the metrics, the alarms and the log lines, and Secrets Manager for the token's secret. Off by default: nothing is created and nothing is billed until you turn it on.
+
+Type: `bool`
+
+Default: `false`
+
+### alarms_sns_topic_arn
+
+ARN of the SNS topic the alarms publish to, on alarm and on OK. Required when alarms_enabled is true. You create the topic and its subscriptions; if it is encrypted, its key must let CloudWatch use it.
+
+Type: `string`
+
+Default: `null`
+
+### alarms_collector_image
+
+The metrics collector's image, by digest: an OpenTelemetry collector with the prometheus receiver, the filter and metricstransform processors and the awsemf exporter, such as AWS Distro for OpenTelemetry, public.ecr.aws/aws-observability/aws-otel-collector:\<version\>@sha256:\<digest\>. Required when alarms_enabled is true. A tag alone is refused. Built for the cpu_architecture chosen.
+
+Type: `string`
+
+Default: `null`
+
+### alarms_health_port
+
+The port of the engine's health endpoint, the health block of your pathways.yaml, which serves /metrics. The collector reads it at 127.0.0.1 inside the task, so the block keeps its default host, 127.0.0.1, with plaintext: true; the port is not mapped and nothing outside the task reaches it. Used when alarms_enabled is true.
+
+Type: `number`
+
+Default: `9090`
+
+### alarms_health_token_version
+
+Raise this by one to write a new health token: the module generates one and writes it to its secret, and neither the plan nor the state ever holds it. The engine and the collector read it when a task starts, so force a new deployment of the service after you raise it.
+
+Type: `number`
+
+Default: `1`
+
+### alarms_store_down_minutes
+
+How many minutes in a row pathways_store_up must be below 1, or missing, before the store down alarm fires. Missing counts, so an engine or a collector that stopped reporting fires it too.
+
+Type: `number`
+
+Default: `2`
+
+### alarms_oldest_pending_age_seconds
+
+The oldest pending age alarm fires when the oldest delivery waiting on any destination has waited longer than this, in seconds, for 5 minutes in a row.
+
+Type: `number`
+
+Default: `600`
+
+### alarms_refused_messages_threshold
+
+The refused messages alarm fires when the bodies the sources refused (unreadable or rejected, all channels together) number more than this in 15 minutes. 0 fires on the first one.
+
+Type: `number`
+
+Default: `0`
+
+### alarms_settled_failed_threshold
+
+The settled destinations failing alarm fires when the messages that settled as failed with a destination (all channels and destinations together) number more than this in 15 minutes. 0 fires on the first one.
+
+Type: `number`
+
+Default: `0`
+
 ## Outputs
 
 ### cluster_arn
@@ -510,7 +582,7 @@ ID of the engine's security group. The database admits it; add rules to it, or t
 
 ### task_role_name
 
-Name of the role the engine and migrate tasks run as. It has no permissions but the bucket's, when bucket_enabled is true: attach a policy for an extension that calls AWS.
+Name of the role the engine and migrate tasks run as. It has no permissions but the bucket's, when bucket_enabled is true, and the metrics log group's, when alarms_enabled is true: attach a policy for an extension that calls AWS.
 
 ### task_role_arn
 
@@ -595,3 +667,15 @@ ID of the SFTP endpoint's security group, or null.
 ### sftp_log_group_name
 
 Name of the SFTP server's CloudWatch log group, or null.
+
+### alarm_arns
+
+ARNs of the four alarms, by key (store_down, oldest_pending_age, refused_messages, settled_failed), or null when alarms_enabled is false.
+
+### metrics_log_group_name
+
+Name of the log group the metrics collector writes the four metrics to, or null when alarms_enabled is false.
+
+### health_token_secret_arn
+
+ARN of the Secrets Manager secret holding the health endpoint's bearer token, which the engine and the collector read as PATHWAYS_HEALTH_TOKEN, or null when alarms_enabled is false. The token itself is in no output, no plan and no state.

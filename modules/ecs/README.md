@@ -28,5 +28,14 @@ module "pathways_ecs" {
 }
 ```
 
-The execution role must be allowed to read each secret in `secrets`, as the `iam` module's is. Inputs
+With `metrics_collector` (the root module sets it when `alarms_enabled` is true), the engine's task
+also runs a metrics collector beside the engine: not essential, so the engine runs on if it stops,
+with no port mapped. It reads its configuration from `PATHWAYS_COLLECTOR_CONFIG`
+(`--config=env:PATHWAYS_COLLECTOR_CONFIG`) and the health endpoint's token from the secret given,
+which the engine also gets as `PATHWAYS_HEALTH_TOKEN`; the migrate task does not. It logs to the
+engine's log group under the stream prefix `metrics-collector`. Without it, the task definition is
+the engine container alone, as it always was.
+
+The execution role must be allowed to read each secret in `secrets`, and the token's secret, as the
+`iam` module's is when the root module gives it both. Inputs
 are in [`variables.tf`](variables.tf), outputs in [`outputs.tf`](outputs.tf).

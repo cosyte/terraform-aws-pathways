@@ -62,8 +62,6 @@ plan it, and tell us what you find.
 
 ### Not here yet
 
-- **Alarms.** CloudWatch alarms on the engine's own metrics, through a collector sidecar, come once
-  the engine publishes its metric names.
 - **A standby.** Pathways can run a second engine as a standby that takes over the lease. On ECS that
   needs care: ECS replaces a task its load balancer reports unhealthy, and a standby is not ready by
   design. It comes with its own tests.
@@ -115,7 +113,7 @@ plan it, and tell us what you find.
   (`/aws/ecs/containerinsights/<cluster>/performance`) that is not encrypted under the module's key,
   and CloudWatch bills for it.
 
-Two more, each off until you turn it on:
+Three more, each off until you turn it on:
 
 - **An S3 bucket** (`bucket_enabled`) for file sources and destinations: encrypted under the
   module's key with an S3 Bucket Key, versioned, all public access blocked, ACLs off, refusing any
@@ -129,6 +127,22 @@ Two more, each off until you turn it on:
   SSH public keys, never a password, and each is locked to its home prefix in the bucket, by a
   logical home directory and by a role that reaches that prefix alone. It logs to a CloudWatch log
   group encrypted under the module's key.
+- **Alarms on the engine's metrics** (`alarms_enabled`, with `alarms_sns_topic_arn` and
+  `alarms_collector_image`): an OpenTelemetry collector beside the engine in its task (AWS Distro for
+  OpenTelemetry, or any collector with the same components, pinned by digest) reads `/metrics` on the
+  engine's health endpoint ([Collect metrics](https://docs.cosyte.com/pathways/collect-metrics)) at
+  127.0.0.1 inside the task, with a bearer token the module generates into a Secrets Manager secret
+  and gives to both containers, so the endpoint stays authenticated and neither the plan nor the
+  state holds the token. It keeps four metrics, folds away every channel, destination and outcome
+  label, and writes them to CloudWatch through a log group under the module's key. Four CloudWatch
+  alarms publish to your SNS topic on alarm and on OK: **store down** (`pathways_store_up` below 1, or
+  missing, for `alarms_store_down_minutes`, 2), **oldest pending age**
+  (`pathways_oldest_pending_age_seconds` above `alarms_oldest_pending_age_seconds`, 600, for 5
+  minutes), **refused messages** (more than `alarms_refused_messages_threshold`, 0, in 15 minutes)
+  and **settled destinations failing** (more than `alarms_settled_failed_threshold`, 0, failed
+  settlements in 15 minutes). Your `pathways.yaml` needs a `health:` block on `alarms_health_port`
+  (9090), with `plaintext: true` and its default host; see
+  [`examples/alarms`](examples/alarms). The task role gets only the right to write that log group.
 
 Both load balancers are internal by default, and each exists only when you name a source of its
 kind. The module has no provider block: your `aws` provider, its region and its `default_tags`
@@ -196,6 +210,16 @@ probes:
 - **With `bucket_enabled`**, a file source or destination's `s3` block names the bucket with
   `bucket: { env: PATHWAYS_BUCKET }` and nothing else: the AWS SDK finds the task role and the region
   on its own. Keep partners' files under their SFTP home prefixes, such as `partners/lab/outbox`.
+- **With `alarms_enabled`**, a `health:` block on `alarms_health_port` (9090 by default) with
+  `plaintext: true` and no `host`, so it binds to 127.0.0.1 and only the collector in the same task
+  reaches it, and no `auth`, so it reads its token from `PATHWAYS_HEALTH_TOKEN`, which the module
+  sets:
+
+  ```yaml title="pathways.yaml"
+  health:
+    port: 9090
+    plaintext: true
+  ```
 
 Everything else your configuration reads with `{ env: NAME }` goes in `environment` (plain values) or
 `secrets` (ARNs). ECS reads each secret when a task starts; no engine change is needed.
@@ -300,6 +324,7 @@ providers (`tests/example-<name>`); nothing here applies them.
 | [`sftp-and-bucket`](examples/sftp-and-bucket) | Files only: two partners over SFTP into the bucket; no load balancer. |
 | [`private-only`](examples/private-only) | No public ingress and no NAT gateway: VPC endpoints for the AWS APIs. |
 | [`cross-region-backup`](examples/cross-region-backup) | The database's automated backups replicated to a second region, and a restore there step by step. |
+| [`alarms`](examples/alarms) | The minimal deployment with the alarms on: a metrics collector beside the engine, four CloudWatch alarms to your SNS topic. |
 
 Three shapes wait on the engine. Their folders hold a README that says plainly they are not yet
 supported and what they wait on, and no Terraform, so nobody deploys a shape the engine cannot run
@@ -335,6 +360,12 @@ We give the drivers, not prices: AWS sets those per region and changes them. Che
   from creation until deletion, whether or not anyone connects, and per GB uploaded and downloaded.
   That hourly charge is often the largest line for a small deployment: turn SFTP off when no
   partner needs it.
+- **The alarms**, with `alarms_enabled`: CloudWatch bills each custom metric per month (the module
+  sends four, with one dimension each, whatever the number of channels) and each standard resolution
+  alarm per metric per month (four); CloudWatch Logs bills the collector's lines per GB ingested and
+  per GB-month kept (a few lines a minute); Secrets Manager bills the token's secret per month and
+  per 10,000 calls; and the collector takes a share of the task's vCPU and memory, which Fargate
+  bills as part of the task. Nothing of it exists, or bills, with `alarms_enabled` off.
 
 ## Layout
 
@@ -357,7 +388,9 @@ README shows, with `source = "github.com/cosyte/terraform-aws-pathways//modules/
 │   ├── load_balancers/      the network load balancer (MLLP) and application load balancer (HTTP)
 │   ├── ecs/                 the cluster, the engine and migrate task definitions, the service
 │   ├── bucket/              optional: the S3 bucket, its access log bucket, the task role's access
-│   └── sftp/                optional: the Transfer Family SFTP server, its users and its logs
+│   ├── sftp/                optional: the Transfer Family SFTP server, its users and its logs
+│   └── alarms/              optional: the health token, the metrics collector's configuration and
+│                            log group, and four CloudWatch alarms
 ├── examples/                one folder per deployment shape; see Examples above
 │   ├── minimal/             the smallest deployment: the engine, its database, one MLLP channel
 │   ├── complete/            the engine, its database, the bucket, SFTP and one channel

@@ -5,8 +5,8 @@
 - The module: Pathways on ECS Fargate, with PostgreSQL on RDS (encrypted, TLS forced), the database
   URL in Secrets Manager, a KMS key, a network load balancer for MLLP, an application load balancer
   for HTTP, readiness health checks, a migrate task definition, a drain setting, and encrypted log
-  groups. Tested with `terraform test` against mocked providers, tflint and trivy. Alarms and a
-  standby engine are not in it yet.
+  groups. Tested with `terraform test` against mocked providers, tflint and trivy. A standby
+  engine is not in it yet.
 - `container_insights`, off by default: Container Insights writes to a log group that is not under
   the module's key, so the module turns it on only when you ask.
 - `database_kms_key_arn`: a key of your own for the database, its backups and its final snapshot, so
@@ -61,3 +61,15 @@
 - A release workflow: a tag `vMAJOR.MINOR.PATCH` on main, with a `CHANGELOG.md` section of its
   version, creates the GitHub release with `docs-content.tar.gz` and `source.tar.gz` attached and
   tells docs.cosyte.com.
+- Alarms on the engine's own metrics, off by default (`alarms_enabled`): with it off the module plans
+  exactly what it did before. On, an OpenTelemetry collector runs beside the engine in its task
+  (`alarms_collector_image`, by digest), reads `/metrics` on the engine's health endpoint at
+  127.0.0.1 with a bearer token the module generates into a Secrets Manager secret and gives to the
+  engine as `PATHWAYS_HEALTH_TOKEN` and to the collector (neither the plan nor the state holds it),
+  and sends CloudWatch four metrics with no channel or destination label. Four CloudWatch alarms
+  publish to `alarms_sns_topic_arn`: store down, oldest pending age, refused messages and settled
+  destinations failing, each with its threshold as an input. A new `modules/alarms`, a
+  `metrics_collector` input on `modules/ecs`, the outputs `alarm_arns`, `metrics_log_group_name` and
+  `health_token_secret_arn`, `examples/alarms`, and a "Turn on the alarms" page. To turn them on, add
+  a `health:` block on `alarms_health_port` (9090) with `plaintext: true` to your `pathways.yaml`;
+  nothing a caller passes today changes.
