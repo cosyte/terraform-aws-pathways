@@ -1,0 +1,49 @@
+{
+  "docs": [
+    "intro",
+    { "type": "category", "label": "Installation", "items": ["installation"] },
+    { "type": "category", "label": "Quickstart", "items": ["quickstart"] },
+    {
+      "type": "category",
+      "label": "How-to guides",
+      "items": [
+        "place-it-in-your-network",
+        "turn-on-the-bucket",
+        "give-partners-sftp",
+        "upgrade",
+        "destroy-a-deployment"
+      ]
+    },
+    { "type": "category", "label": "Explanation", "items": ["deployment-shapes"] },
+    {
+      "type": "category",
+      "label": "Reference",
+      "items": [
+        "inputs-and-outputs",
+        {
+          "type": "category",
+          "label": "Examples",
+          "items": ["example-minimal", "example-complete"]
+        },
+        {
+          "type": "category",
+          "label": "Submodules",
+          "items": [
+            "module-kms",
+            "module-logs",
+            "module-security-groups",
+            "module-database",
+            "module-iam",
+            "module-load-balancers",
+            "module-ecs",
+            "module-bucket",
+            "module-sftp"
+          ]
+        }
+      ]
+    },
+    { "type": "category", "label": "Troubleshooting", "items": ["troubleshooting"] },
+    "testing-and-quality",
+    "performance"
+  ]
+}

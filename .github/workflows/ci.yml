@@ -3,10 +3,13 @@
 # pull request reaches the same answer. Nothing here plans against or applies to a real account.
 #
 #   fmt         terraform fmt -check -recursive
+#   docs        the generated docs-content/ pages match the code, every example has a page
+#               (scripts/docs.sh), and docs-content/ passes the docs-content structure check
 #   validate    the layout, then terraform init -backend=false and validate, the module, each
 #               submodule and each example (scripts/validate.sh)
 #   tf-test     terraform test per subject under tests/, mocked aws provider, plan only
-#               (scripts/test.sh)
+#               (scripts/test.sh), then the release's two archives built from that run, as the
+#               release workflow builds them
 #   tf-policy   tflint with the AWS ruleset, and trivy config (scripts/policy.sh)
 #   actionlint  every workflow file
 #
@@ -51,6 +54,37 @@ jobs:
       - name: terraform fmt
         run: terraform fmt -check -recursive -diff
 
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install terraform-docs at the version pinned in mise.toml
+        run: |
+          set -euo pipefail
+          v=$(awk -F'"' '/^terraform-docs[[:space:]]*=/ {print $(NF-1)}' mise.toml)
+          if [ -z "$v" ]; then
+            echo "::error::no terraform-docs pin in mise.toml"
+            exit 1
+          fi
+          base="https://github.com/terraform-docs/terraform-docs/releases/download/v${v}"
+          tarball="terraform-docs-v${v}-linux-amd64.tar.gz"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/${tarball}" "${base}/${tarball}"
+          curl -fsSL --retry 3 -o "${RUNNER_TEMP}/sums.txt" "${base}/terraform-docs-v${v}.sha256sum"
+          ( cd "${RUNNER_TEMP}" && grep " ${tarball}\$" sums.txt | sha256sum -c - )
+          mkdir -p "${RUNNER_TEMP}/bin"
+          tar -xzf "${RUNNER_TEMP}/${tarball}" -C "${RUNNER_TEMP}/bin" terraform-docs
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
+
+      - name: the generated pages match the code, and every example has a page
+        run: scripts/docs.sh
+
+      # The docs-content standard's structure check, from our shared toolchain, at an exact version.
+      - name: docs-content structure check
+        run: npx --yes --package=@cosyte/script-utils@0.1.12 -- cosyte-docs-content
+
   validate:
     name: validate
     runs-on: ubuntu-latest
@@ -87,7 +121,24 @@ jobs:
           terraform_wrapper: false
 
       - name: terraform test, mocked providers, plan only
-        run: scripts/test.sh
+        run: |
+          set -euo pipefail
+          scripts/test.sh 2>&1 | tee "${RUNNER_TEMP}/test.log"
+
+      # The release's last steps, on this run's numbers, so a change that breaks them fails here
+      # rather than on a tag. Nothing is published.
+      - name: the release's two archives, built from this run
+        env:
+          TERRAFORM: ${{ steps.pins.outputs.terraform }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release_numbers.py --test-log "${RUNNER_TEMP}/test.log" \
+            --commit "$GITHUB_SHA" --terraform "$TERRAFORM" --runner ubuntu-latest
+          scripts/pack-docs.sh "${RUNNER_TEMP}/dist-artifacts"
+          sed -n '/^## Current numbers/,$p' docs-content/testing-and-quality.md
+          tar -tzf "${RUNNER_TEMP}/dist-artifacts/docs-content.tar.gz"
+          tar -tzf "${RUNNER_TEMP}/dist-artifacts/source.tar.gz"
+          git checkout -- docs-content
 
   tf-policy:
     name: tf-policy

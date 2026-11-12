@@ -29,3 +29,14 @@
 - `examples/complete` stands up the engine, the database, the bucket, SFTP and one channel, with the
   project it deploys. The README lists the monthly cost drivers and says a deployment needs your own
   Business Associate Addendum with AWS.
+- Documentation for docs.cosyte.com in `docs-content/`: a quickstart that deploys the smallest
+  example, how-to guides for the network, the bucket, SFTP, upgrades and a destroy, an explanation of
+  the deployment shapes and what drives their cost, troubleshooting, the two quality pages, every
+  input and output of the root and of each submodule (generated from the code by `scripts/docs.sh`,
+  which CI runs), and a page per example with its files, what it deploys and what it costs to leave
+  running. CI fails when an example has no page. The README links to the docs site.
+- `examples/minimal`: the smallest deployment, one engine, its database in one availability zone and
+  one MLLP channel, which the quickstart deploys.
+- A release workflow: a tag `vMAJOR.MINOR.PATCH` on main, with a `CHANGELOG.md` section of its
+  version, creates the GitHub release with `docs-content.tar.gz` and `source.tar.gz` attached and
+  tells docs.cosyte.com.
