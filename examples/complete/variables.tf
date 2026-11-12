@@ -43,5 +43,5 @@ variable "sftp_allowed_cidr_blocks" {
 variable "lab_public_key" {
   description = "The lab's SSH public key, one OpenSSH line. The placeholder is no real key."
   type        = string
-  default     = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA lab@example.com"
+  default     = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA lab-key"
 }

@@ -418,7 +418,7 @@ run "sftp_fronts_the_bucket" {
     sftp_allowed_cidr_blocks = ["10.30.0.0/24"]
     sftp_users = {
       lab = {
-        public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA lab@example.com"]
+        public_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA lab-key"]
         home_prefix = "partners/lab"
       }
     }

@@ -31,7 +31,7 @@ module "pathways_sftp" {
 
   users = {
     lab = {
-      public_keys = ["ssh-ed25519 AAAA... lab@example.com"]
+      public_keys = ["ssh-ed25519 AAAA... lab-key"]
       home_prefix = "partners/lab"
     }
   }
