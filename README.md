@@ -2,7 +2,8 @@
 
 A Terraform module that runs [Cosyte Pathways](https://github.com/cosyte/pathways), our open-source
 healthcare integration engine, on AWS ECS Fargate, with its database, its secrets, its key, its load
-balancers and its logs. It deploys your project's own image, named by digest.
+balancers and its logs, and, when you ask for them, an S3 bucket and an SFTP server for file
+exchange. It deploys your project's own image, named by digest.
 
 **Status: not released yet.** The module is here and tested against mocked providers, but nothing is
 tagged or published to a registry, and it has not been applied to a real account by us yet. Read it,
@@ -37,6 +38,21 @@ plan it, and tell us what you find.
   (`/aws/ecs/containerinsights/<cluster>/performance`) that is not encrypted under the module's key,
   and CloudWatch bills for it.
 
+Two more, each off until you turn it on:
+
+- **An S3 bucket** (`bucket_enabled`) for file sources and destinations: encrypted under the
+  module's key with an S3 Bucket Key, versioned, all public access blocked, ACLs off, refusing any
+  request without TLS 1.2 or later, with lifecycle rules you set (`bucket_lifecycle_rules`) and
+  server access logs to a second, private bucket. The engine's task role may list the bucket and
+  read, write and delete its objects, and the engine gets its name as `PATHWAYS_BUCKET`, so a
+  channel's `s3` block reads `bucket: { env: PATHWAYS_BUCKET }` and no access key exists.
+- **An SFTP server** (`sftp_enabled`, which needs the bucket): AWS Transfer Family on a VPC endpoint
+  with no Elastic IP, so it is internal to your VPC, reachable on port 22 from
+  `sftp_allowed_cidr_blocks` alone (`0.0.0.0/0` is refused). Its users (`sftp_users`) sign in with
+  SSH public keys, never a password, and each is locked to its home prefix in the bucket, by a
+  logical home directory and by a role that reaches that prefix alone. It logs to a CloudWatch log
+  group encrypted under the module's key.
+
 Both load balancers are internal by default, and each exists only when you name a source of its
 kind. The module has no provider block: your `aws` provider, its region and its `default_tags`
 apply.
@@ -64,7 +80,9 @@ module "pathways" {
 }
 ```
 
-[`examples/complete`](examples/complete) is the same as a whole root module. Every input is
+[`examples/complete`](examples/complete) stands the whole thing up as a root module: the engine and
+its database, the bucket, SFTP for one partner, and the one channel that joins them, with the
+project it deploys in `examples/complete/project`. Every input is
 described in [`variables.tf`](variables.tf) and every output in [`outputs.tf`](outputs.tf).
 
 ## Layout
@@ -86,9 +104,11 @@ README shows, with `source = "github.com/cosyte/terraform-aws-pathways//modules/
 │   ├── database/            PostgreSQL on RDS and the secret holding its URL
 │   ├── iam/                 the task execution role and the task role
 │   ├── load_balancers/      the network load balancer (MLLP) and application load balancer (HTTP)
-│   └── ecs/                 the cluster, the engine and migrate task definitions, the service
+│   ├── ecs/                 the cluster, the engine and migrate task definitions, the service
+│   ├── bucket/              optional: the S3 bucket, its access log bucket, the task role's access
+│   └── sftp/                optional: the Transfer Family SFTP server, its users and its logs
 ├── examples/
-│   └── complete/            a whole root module that calls this one
+│   └── complete/            a whole root module that calls this one, and the project it deploys
 ├── tests/
 │   ├── composition/         the root: the wiring between the submodules, its outputs and inputs
 │   └── <name>/              one per submodule (kms, logs, ...), each tested on its own
@@ -135,6 +155,10 @@ probes:
 - **Each source's port** in `mllp_sources` or `http_sources`. An MLLP source keeps its own `tls`
   block; an HTTP source with its own `tls` block is reached over HTTPS (`http_target_protocol`, the
   default), or with `plaintext: true` over HTTP.
+
+- **With `bucket_enabled`**, a file source or destination's `s3` block names the bucket with
+  `bucket: { env: PATHWAYS_BUCKET }` and nothing else: the AWS SDK finds the task role and the region
+  on its own. Keep partners' files under their SFTP home prefixes, such as `partners/lab/outbox`.
 
 Everything else your configuration reads with `{ env: NAME }` goes in `environment` (plain values) or
 `secrets` (ARNs). ECS reads each secret when a task starts; no engine change is needed.
@@ -220,6 +244,69 @@ under one key it scopes to this deployment; the longest window AWS allows is the
 reason. The snapshot's name is fixed, so a second destroy of a module with the same `name` fails
 while the first snapshot exists: copy it to a new name, or delete it, first.
 
+## The bucket and SFTP, from the AWS documentation
+
+What the `bucket` and `sftp` submodules do rests on these pages:
+
+- S3 encryption: SSE-KMS with an S3 Bucket Key, which lowers the requests S3 makes to KMS, and
+  whose encryption context names the bucket rather than the object
+  ([Reducing the cost of SSE-KMS with Amazon S3 Bucket Keys](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-key.html)).
+- S3 public access: the four Block Public Access settings
+  ([Blocking public access to your Amazon S3 storage](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html)),
+  and ACLs off with `BucketOwnerEnforced`
+  ([Controlling ownership of objects and disabling ACLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/about-object-ownership.html)).
+- TLS only: a bucket policy denying requests where `aws:SecureTransport` is false, and with
+  `s3:TlsVersion` below 1.2
+  ([Security best practices for Amazon S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html)).
+- Server access logs: delivered by `logging.s3.amazonaws.com`, granted in the log bucket's policy
+  with `aws:SourceArn` and `aws:SourceAccount`, to a log bucket whose default encryption is SSE-S3,
+  since a customer managed key is not supported there
+  ([Enabling Amazon S3 server access logging](https://docs.aws.amazon.com/AmazonS3/latest/userguide/enable-server-access-logging.html)).
+- Versioning and lifecycle: a deleted object in a versioned bucket stays as a noncurrent version
+  until a lifecycle rule expires it
+  ([Managing the lifecycle of objects](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html)).
+- Transfer Family endpoint: a VPC endpoint with no Elastic IP is internal, reachable from the VPC
+  and what is connected to it, and its security group decides who may connect
+  ([Create a server in a virtual private cloud](https://docs.aws.amazon.com/transfer/latest/userguide/create-server-in-vpc.html)).
+- Users: service managed users with SSH public keys, a role Transfer Family assumes for each, and a
+  logical home directory that maps `/` to the user's prefix and keeps the user inside it
+  ([Working with service-managed users](https://docs.aws.amazon.com/transfer/latest/userguide/service-managed-users.html),
+  [Using logical directories to simplify your Transfer Family directory structures](https://docs.aws.amazon.com/transfer/latest/userguide/logical-dir-mappings.html)),
+  and the confused deputy conditions `aws:SourceAccount` and `aws:SourceArn` on that role's trust
+  ([Cross-service confused deputy prevention](https://docs.aws.amazon.com/transfer/latest/userguide/confused-deputy.html)).
+- Logs: structured JSON logs to a CloudWatch log group
+  ([Logging activity with CloudWatch](https://docs.aws.amazon.com/transfer/latest/userguide/structured-logging.html)),
+  and the security policies that set the SSH algorithms
+  ([Security policies for AWS Transfer Family servers](https://docs.aws.amazon.com/transfer/latest/userguide/security-policies.html)).
+
+## What it costs each month
+
+We give the drivers, not prices: AWS sets those per region and changes them. Check each against the
+[AWS Pricing Calculator](https://calculator.aws/) for your region.
+
+- **The engine**: Fargate bills each task's vCPU and memory per second it runs (`cpu`, `memory`). One
+  engine runs all month, and the migrate task for a few minutes a deploy.
+- **The database**: RDS bills the instance class per hour (`database_instance_class`), twice over with
+  `database_multi_az`, the storage allocated per GB-month (up to `database_max_allocated_storage`),
+  and backups beyond the database's own size.
+- **The load balancers**: each bills per hour it exists and per load balancer capacity unit, which
+  grows with new connections, active connections and bytes. Each exists only with a source of its
+  kind.
+- **NAT and data transfer**: tasks in private subnets reach AWS APIs through your NAT gateway, which
+  bills per hour and per GB processed, unless you add VPC endpoints (which bill per hour and per GB
+  too). Data leaving AWS bills per GB.
+- **Secrets, the key and the logs**: Secrets Manager per secret per month and per 10,000 calls; KMS per
+  key per month and per request; CloudWatch Logs per GB ingested and per GB-month stored, under
+  `log_retention_days`.
+- **The bucket**, with `bucket_enabled`: S3 bills per GB-month stored, noncurrent versions included
+  until `bucket_lifecycle_rules` removes them, and per request. A file source lists its prefix every
+  `pollInterval`, so the list requests run all month even when no file arrives. The access logs are
+  objects in the log bucket, billed the same way. The Bucket Key keeps KMS requests low.
+- **SFTP**, with `sftp_enabled`: Transfer Family bills per hour for each protocol enabled on a server,
+  from creation until deletion, whether or not anyone connects, and per GB uploaded and downloaded.
+  That hourly charge is often the largest line for a small deployment: turn SFTP off when no
+  partner needs it.
+
 ## Not here yet
 
 - **Alarms.** CloudWatch alarms on the engine's own metrics, through a collector sidecar, come once
@@ -227,6 +314,9 @@ while the first snapshot exists: copy it to a new name, or delete it, first.
 - **A standby.** Pathways can run a second engine as a standby that takes over the lease. On ECS that
   needs care: ECS replaces a task its load balancer reports unhealthy, and a standby is not ready by
   design. It comes with its own tests.
+- **SFTP from the internet.** The SFTP endpoint is internal: partners reach it over your VPN or
+  another private link. An internet-facing endpoint needs Elastic IPs, which the module does not
+  create yet.
 - **A registry release.** No version is tagged or published yet. The
   [Terraform Registry](https://developer.hashicorp.com/terraform/registry/modules/publish) (read
   2026-11-11) publishes only a public GitHub repository named `terraform-<provider>-<name>`, which
@@ -247,8 +337,11 @@ findings are accepted, inline where they fire:
 ## Compliance
 
 Running Pathways in your account keeps messages in your account. We sign Business Associate
-Agreements. A module cannot make a deployment compliant on its own: what you run on it, who can
-reach it and how you operate it are yours to decide.
+Agreements. Your deployment also needs your own Business Associate Addendum with AWS, which AWS
+offers through AWS Artifact, and it covers only the services AWS lists as eligible: check that list
+for each service the module uses (ECS on Fargate, RDS, S3, Transfer Family, KMS, Secrets Manager,
+CloudWatch Logs, Elastic Load Balancing). A module cannot make a deployment compliant on its own:
+what you run on it, who can reach it and how you operate it are yours to decide.
 
 ## License
 

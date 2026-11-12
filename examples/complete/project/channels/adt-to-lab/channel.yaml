@@ -1,0 +1,25 @@
+# One channel: take ADT over MLLP from the hospital system, keep the admissions, and write each to the
+# module's bucket under partners/lab/outbox, where the lab picks it up over SFTP. The lab's SFTP home
+# is partners/lab, so it sees the files under /outbox.
+name: adt-to-lab
+format: hl7v2
+
+source:
+  mllp:
+    # mllp_sources.adt in the example's main.tf: the network load balancer passes this port through.
+    port: 2575
+    host: 0.0.0.0
+    # The engine terminates TLS itself. Add the certificate and key to the image.
+    tls:
+      cert: ../../certs/server.pem
+      key: ../../certs/server.key
+
+transform: ./transform.ts
+
+destinations:
+  - file:
+      dir: partners/lab/outbox
+      s3:
+        # The module sets PATHWAYS_BUCKET to its bucket's name. The engine's task role may use the
+        # bucket, and the AWS SDK finds that role and the region on its own: no credential here.
+        bucket: { env: PATHWAYS_BUCKET }
